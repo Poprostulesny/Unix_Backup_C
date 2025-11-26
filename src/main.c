@@ -1,1 +1,439 @@
-int main() { return 0; }
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
+#define BASE_SIZE 5
+
+typedef struct Node_target
+{
+    char* target;
+    struct Node_target* next;
+    struct Node_target* previous;
+} node_tr;
+
+typedef struct List_target
+{
+    struct Node_target* head;
+    struct Node_target* tail;
+    int size;
+} list_tg;
+
+typedef struct Node_source
+{
+    char* source;
+    struct List_target targets;
+    struct Node_source* next;
+    struct Node_source* previous;
+} node_sc;
+
+typedef struct List_source
+{
+    struct Node_source* head;
+    struct Node_source* tail;
+    int size;
+} list_sc;
+
+// Helper function to delete a single target node
+void delete_target_node(node_tr* node)
+{
+    if (node != NULL)
+    {
+        free(node->target);
+        free(node);
+    }
+}
+
+// Helper function to delete a single source node
+void delete_source_node(node_sc* node)
+{
+    if (node != NULL)
+    {
+        free(node->source);
+        // Free targets list
+        node_tr* current_target = node->targets.head;
+        while (current_target != NULL)
+        {
+            node_tr* temp = current_target;
+            current_target = current_target->next;
+            delete_target_node(temp);
+        }
+        free(node);
+    }
+}
+
+// Function to add a target node at the beginning of target list
+void list_target_add(list_tg* l, node_tr* new_node)
+{
+    if (l == NULL || new_node == NULL)
+    {
+        return;
+    }
+
+    new_node->next = l->head;
+    new_node->previous = NULL;
+
+    if (l->head != NULL)
+    {
+        l->head->previous = new_node;
+    }
+    else
+    {
+        l->tail = new_node;
+    }
+
+    l->head = new_node;
+    l->size++;
+}
+
+// Function to delete a target node by target name
+void list_target_delete(list_tg* l, char* target)
+{
+    if (l == NULL || target == NULL)
+    {
+        return;
+    }
+
+    node_tr* current = l->head;
+    while (current != NULL)
+    {
+        if (strcmp(current->target, target) == 0)
+        {
+            // Found the node to delete
+            if (current->previous != NULL)
+            {
+                current->previous->next = current->next;
+            }
+            else
+            {
+                l->head = current->next;  // Deleting head
+            }
+
+            if (current->next != NULL)
+            {
+                current->next->previous = current->previous;
+            }
+            else
+            {
+                l->tail = current->previous;  // Deleting tail
+            }
+
+            delete_target_node(current);
+            l->size--;
+            return;
+        }
+        current = current->next;
+    }
+}
+
+// Function to add a source node at the beginning of source list
+void list_source_add(list_sc* l, node_sc* new_node)
+{
+    if (l == NULL || new_node == NULL)
+    {
+        return;
+    }
+
+    new_node->next = l->head;
+    new_node->previous = NULL;
+
+    if (l->head != NULL)
+    {
+        l->head->previous = new_node;
+    }
+    else
+    {
+        l->tail = new_node;
+    }
+
+    l->head = new_node;
+    l->size++;
+}
+
+// Function to delete a source node by source name
+void list_source_delete(list_sc* l, char* source)
+{
+    if (l == NULL || source == NULL)
+    {
+        return;
+    }
+
+    node_sc* current = l->head;
+    while (current != NULL)
+    {
+        if (strcmp(current->source, source) == 0)
+        {
+            // Found the node to delete
+            if (current->previous != NULL)
+            {
+                current->previous->next = current->next;
+            }
+            else
+            {
+                l->head = current->next;  // Deleting head
+            }
+
+            if (current->next != NULL)
+            {
+                current->next->previous = current->previous;
+            }
+            else
+            {
+                l->tail = current->previous;  // Deleting tail
+            }
+
+            delete_source_node(current);
+            l->size--;
+            return;
+        }
+        current = current->next;
+    }
+}
+
+// Function to find element by source name
+node_sc* find_element_by_source(list_sc* l, char* source)
+{
+    if (l == NULL || source == NULL)
+    {
+        return NULL;
+    }
+
+    node_sc* current = l->head;
+    while (current != NULL)
+    {
+        if (strcmp(current->source, source) == 0)
+        {
+            return current;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+/*
+
+
+ADD
+
+
+*/
+int parse_targets(node_sc* to_add)
+{
+    char* tok = strtok(NULL, " ");
+    int cnt = 0;
+    while (tok != NULL)
+    {
+        node_tr* new_node = malloc(sizeof(node_tr));
+        if (new_node == NULL)
+        {
+            ERR("malloc failed");
+        }
+        new_node->target = strdup(tok);
+        if (new_node->target == NULL)
+        {
+            ERR("strdup failed");
+        }
+        new_node->next = NULL;
+        new_node->previous = NULL;
+        // add to the list
+        list_target_add(&to_add->targets, new_node);
+        cnt++;
+        tok = strtok(NULL, " ");
+    }
+
+    return cnt;
+}
+
+int take_input(list_sc* backups)
+{
+    char* tok = strtok(NULL, " ");
+    if (tok == NULL)
+        return 0;
+
+    int was_source_added = 0;
+    node_sc* source_elem = find_element_by_source(backups, tok);
+
+    if (source_elem == NULL)
+    {
+        source_elem = malloc(sizeof(struct Node_source));
+        if (source_elem == NULL)
+        {
+            ERR("malloc failed");
+        }
+        source_elem->source = strdup(tok);
+        if (source_elem->source == NULL)
+        {
+            ERR("strdup failed");
+        }
+        source_elem->targets.head = NULL;
+        source_elem->targets.tail = NULL;
+        source_elem->targets.size = 0;
+        was_source_added = 1;
+    }
+
+    int cnt = parse_targets(source_elem);
+
+    if (cnt > 0 && was_source_added)
+    {
+        list_source_add(backups, source_elem);
+    }
+    else if (cnt == 0 && was_source_added)
+    {
+        delete_source_node(source_elem);
+    }
+
+    return 1;
+}
+
+/*
+
+
+LIST
+
+
+*/
+void print_targets(list_tg* l)
+{
+    printf("amount of targets: %d\n", l->size);
+
+    node_tr* current = l->head;
+    while (current != NULL)
+    {
+        printf("    Target: %s\n", current->target);
+        current = current->next;
+    }
+}
+void list_sources_and_targets(list_sc* l)
+{
+    node_sc* current = l->head;
+    while (current != NULL)
+    {
+        printf("Source: %s, ", current->source);
+
+        print_targets(&current->targets);
+        current = current->next;
+    }
+}
+
+/*
+
+
+EXIT
+
+
+*/
+
+void delete_backups_list(list_sc* backups)
+{
+    if (backups == NULL)
+        return;
+
+    // Free all elements in the list
+    node_sc* current = backups->head;
+    while (current != NULL)
+    {
+        node_sc* temp = current;
+        current = current->next;
+        delete_source_node(temp);
+    }
+
+    // Reset list pointers
+    backups->head = NULL;
+    backups->tail = NULL;
+    backups->size = 0;
+}
+
+/*
+
+
+end
+
+
+
+*/
+void end(list_sc* l, char* source)
+{
+    char* tok = strtok(NULL, " ");
+    node_sc* node_found = find_element_by_source(l, source);
+    if (node_found == NULL)
+    {
+        puts("No such source");
+        return;
+    }
+    int cnt = 0;
+    while (tok != NULL)
+    {
+        list_target_delete(&node_found->targets, tok);
+
+        cnt++;
+        tok = strtok(NULL, " ");
+    }
+    if (cnt == 0)
+    {
+        puts("Invalid syntax");
+    }
+    if (node_found->targets.size == 0)
+    {
+        list_source_delete(l, source);
+    }
+}
+int main()
+{
+    char* buff = NULL;
+    size_t z = 0;
+    int n = 0;
+
+    list_sc backups;
+    backups.head = NULL;
+    backups.tail = NULL;
+    backups.size = 0;
+
+    int k;
+
+    while ((n = getline(&buff, &z, stdin)) > 1)
+    {
+        if (buff[n - 1] == '\n')
+        {
+            buff[n - 1] = '\0';
+        }
+        char* tok = strtok(buff, " ");
+
+        // input in the form add <source path> <target path> with multiple target paths
+        if (strcmp(tok, "add") == 0)
+        {
+            if ((k = take_input(&backups)) == 0)
+            {
+                // do smth
+                puts("Invalid syntax\n");
+                continue;
+            }
+        }
+        // input in the form end <source path> <target path> with multiple target paths
+        else if (strcmp(tok, "end") == 0)
+        {
+            tok = strtok(NULL, " ");
+            if (tok == NULL)
+            {
+                puts("Invalid syntax\n");
+                continue;
+            }
+            end(&backups, tok);
+        }
+        else if (strcmp(tok, "restore") == 0)
+        {
+        }
+        else if (strcmp(tok, "exit") == 0)
+        {
+            delete_backups_list(&backups);
+            free(buff);
+            return 0;
+        }
+        else if (strcmp(tok, "list") == 0)
+        {
+            list_sources_and_targets(&backups);
+        }
+    }
+    delete_backups_list(&backups);
+    free(buff);
+    return 0;
+}

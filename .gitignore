@@ -1,2 +1,5 @@
 *.o
 sop-backup
+.vscode/
+main
+tempCodeRunner*
