@@ -363,21 +363,23 @@ int parse_targets(node_sc* to_add)
     char* tok = strtok(NULL, " ");
     int cnt = 0;
     while (tok != NULL)
-
     {
-        
+        //If the directory is not empty, write and continue parsing, is_empty_dir ensures that it is empty or creates it if it doesnt exist
         if (is_empty_dir(tok) < 0)
         {
             printf("Target has to be an empty directory!\n");
             tok = strtok(NULL, " ");
             continue;
         }
+
         char* real_tok = realpath(tok, NULL);
         if (real_tok == NULL)
         {
             fprintf(stderr, "realpath failed for '%s': %s\n", tok, strerror(errno));
             ERR("realpath");
         }
+
+        //If an element is already a target or a source of another element in the list, dont add it to the targets and print an error message.
         if(find_element_by_target_help(&to_add->targets, tok)){
             printf("This target already exists(%s)!\n", tok);
             free(real_tok);
@@ -391,7 +393,6 @@ int parse_targets(node_sc* to_add)
             tok = strtok(NULL, " ");
             continue;
         }
-        
         if (find_element_by_target(tok))
         {
             printf("Target already used!\n");
@@ -400,7 +401,7 @@ int parse_targets(node_sc* to_add)
             continue;
         }
        
-
+        //Create new target entry
         node_tr* new_node = malloc(sizeof(node_tr));
 
         if (new_node == NULL)
@@ -419,7 +420,7 @@ int parse_targets(node_sc* to_add)
         new_node->next = NULL;
         new_node->previous = NULL;
 
-        // add to the list
+        //Add to the list
         list_target_add(&to_add->targets, new_node);
         cnt++;
         tok = strtok(NULL, " ");
@@ -434,7 +435,8 @@ int take_input(list_sc* backups)
     char* tok = strtok(NULL, " ");
     if (tok == NULL)
         return 0;
-
+    
+    //Setting variables
     int was_source_added = 0;
     char* source_full = realpath(tok, NULL);
     if (source_full == NULL)
@@ -442,19 +444,26 @@ int take_input(list_sc* backups)
         fprintf(stderr, "Source directory doesn't exist '%s': %s\n", tok, strerror(errno));
         return;
     }
+    if(find_element_by_target(tok)==1){
+        printf("Source is a target of a different backup operation.\n");
+        return;
+    }
+
+    //Checking whether we have an element with this source already active
     node_sc* source_elem = find_element_by_source(backups, tok);
 
+    //If not create it
     if (source_elem == NULL)
     {
         source_elem = malloc(sizeof(struct Node_source));
         if (source_elem == NULL)
         {
             ERR("malloc failed");
-        }
+        }   
 
         source_elem->source_friendly = strdup(tok);
         source_elem->source_full = strdup(source_full);
-
+        
         if (source_elem->source_friendly == NULL || source_elem->source_full == NULL)
         {
             ERR("strdup failed");
@@ -467,16 +476,20 @@ int take_input(list_sc* backups)
         fprintf(stderr, "NEW node_sc %p, source='%s'\n", (void*)source_elem, source_elem->source_friendly);
     }
 
+    //Parsing the list of targets
     int cnt = parse_targets(source_elem);
 
+    //If we have added something, and we didn't have the element before add the new node to the list of active whatchers
     if (cnt > 0 && was_source_added)
     {
         list_source_add(backups, source_elem);
     }
+    //If the lenght of list of our target is zero delete it
     else if (source_elem->targets.size == 0)
     {
         delete_source_node(source_elem);
     }
+
     free(source_full);
     puts("Finished taking input");
     return 1;
@@ -527,7 +540,7 @@ void delete_backups_list(list_sc* backups)
     // Free all elements in the list
     node_sc* current = backups->head;
     while (current != NULL)
-    {
+    {   
         node_sc* temp = current;
         current = current->next;
         delete_source_node(temp);
@@ -550,14 +563,18 @@ END
 void end(list_sc* l, char* source_friendly)
 {
  
-
+    
     char* tok = strtok(NULL, " ");
+
+    //Find the source node
     node_sc* node_found = find_element_by_source(l, source_friendly);
     if (node_found == NULL)
     {
         puts("No such source");
         return;
     }
+
+    //For every target try to delete it from the list of targets
     int cnt = 0;
     while (tok != NULL)
     {
@@ -570,10 +587,13 @@ void end(list_sc* l, char* source_friendly)
         tok = strtok(NULL, " ");
        
     }
+
     if (cnt == 0)
     {
-        puts("Invalid syntax");
+        puts("Nothing to delete");
     }
+
+    //If we have deleted all targets from the source node then we can remove it
     if (node_found->targets.size == 0)
     {
         list_source_delete(l, source_friendly);
@@ -599,6 +619,7 @@ int main()
         {
             buff[n - 1] = '\0';
         }
+
         char* tok = strtok(buff, " ");
         if (tok == NULL)
         {
