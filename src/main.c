@@ -1,13 +1,66 @@
+#define _POSIX_C_SOURCE 200809L
+#define _XOPEN_SOURCE 700
+
+#include <dirent.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #define BASE_SIZE 5
+/*checking whether the directory exists and is empty. if it doesnt exist it creates it.
+    return -1 when is not a directory
+    return 0 when it is not empty or didnt exist
+*/
+int is_empty_dir(const char* path)
+{
+    struct stat st;
+    if (stat(path, &st) != 0)
+    {
+        if (mkdir(path, 0755) == -1)
+        {
+            ERR("mkdir");
+        }
+        return 0;
+    }
+
+    if (!S_ISDIR(st.st_mode))
+    {
+        return -1;
+    }
+
+    DIR* d = opendir(path);
+    if (!d)
+    {
+        return -1;
+    }
+
+    struct dirent* ent;
+    int cnt = 0;
+    while ((ent = readdir(d)) != NULL)
+    {
+        cnt++;
+    }
+    closedir(d);
+
+    if (cnt == 2)
+    {
+        return 0;
+    }
+
+    return -1;
+}
+
+int min(int a, int b) { return a < b ? a : b; }
 
 typedef struct Node_target
 {
-    char* target;
+    char* target_friendly;
+    char* target_full;
     struct Node_target* next;
     struct Node_target* previous;
 } node_tr;
@@ -21,7 +74,8 @@ typedef struct List_target
 
 typedef struct Node_source
 {
-    char* source;
+    char* source_full;
+    char* source_friendly;
     struct List_target targets;
     struct Node_source* next;
     struct Node_source* previous;
@@ -33,13 +87,18 @@ typedef struct List_source
     struct Node_source* tail;
     int size;
 } list_sc;
+/* GLOBAL VARIABLES*/
+list_sc backups;
+int inotify_fd;
+/*-------------------*/
 
 // Helper function to delete a single target node
 void delete_target_node(node_tr* node)
 {
     if (node != NULL)
     {
-        free(node->target);
+        free(node->target_friendly);
+        free(node->target_full);
         free(node);
     }
 }
@@ -49,8 +108,9 @@ void delete_source_node(node_sc* node)
 {
     if (node != NULL)
     {
-        free(node->source);
-        // Free targets list
+        free(node->source_friendly);
+        free(node->source_full);
+      
         node_tr* current_target = node->targets.head;
         while (current_target != NULL)
         {
@@ -64,7 +124,7 @@ void delete_source_node(node_sc* node)
 
 // Function to add a target node at the beginning of target list
 void list_target_add(list_tg* l, node_tr* new_node)
-{
+{   
     if (l == NULL || new_node == NULL)
     {
         return;
@@ -86,7 +146,7 @@ void list_target_add(list_tg* l, node_tr* new_node)
     l->size++;
 }
 
-// Function to delete a target node by target name
+// Function to delete a target node by full target name
 void list_target_delete(list_tg* l, char* target)
 {
     if (l == NULL || target == NULL)
@@ -97,7 +157,7 @@ void list_target_delete(list_tg* l, char* target)
     node_tr* current = l->head;
     while (current != NULL)
     {
-        if (strcmp(current->target, target) == 0)
+        if (strcmp(current->target_friendly, target) == 0)
         {
             // Found the node to delete
             if (current->previous != NULL)
@@ -106,7 +166,7 @@ void list_target_delete(list_tg* l, char* target)
             }
             else
             {
-                l->head = current->next;  // Deleting head
+                l->head = current->next;
             }
 
             if (current->next != NULL)
@@ -115,15 +175,17 @@ void list_target_delete(list_tg* l, char* target)
             }
             else
             {
-                l->tail = current->previous;  // Deleting tail
+                l->tail = current->previous;
             }
 
             delete_target_node(current);
+            printf("Deleted node with full path: %s\n", current->target_full);
             l->size--;
             return;
         }
         current = current->next;
     }
+    printf("Target not found: %s\n", target);
 }
 
 // Function to add a source node at the beginning of source list
@@ -133,6 +195,7 @@ void list_source_add(list_sc* l, node_sc* new_node)
     {
         return;
     }
+    fprintf(stderr, "ADD node_sc %p (source=%s)\n", (void*)new_node, new_node->source_friendly);
 
     new_node->next = l->head;
     new_node->previous = NULL;
@@ -159,18 +222,20 @@ void list_source_delete(list_sc* l, char* source)
     }
 
     node_sc* current = l->head;
+    fprintf(stderr, "DEL node_sc %p (source=%s)\n", (void*)current, current->source_friendly);
+
     while (current != NULL)
     {
-        if (strcmp(current->source, source) == 0)
+        if (strcmp(current->source_friendly, source) == 0)
         {
-            // Found the node to delete
+            
             if (current->previous != NULL)
             {
                 current->previous->next = current->next;
             }
             else
             {
-                l->head = current->next;  // Deleting head
+                l->head = current->next;  
             }
 
             if (current->next != NULL)
@@ -179,7 +244,7 @@ void list_source_delete(list_sc* l, char* source)
             }
             else
             {
-                l->tail = current->previous;  // Deleting tail
+                l->tail = current->previous; 
             }
 
             delete_source_node(current);
@@ -190,7 +255,48 @@ void list_source_delete(list_sc* l, char* source)
     }
 }
 
-// Function to find element by source name
+// Function to check whether an element is already a target by the friendly name
+int find_element_by_target_help(list_tg* l, char* target)
+{
+    if (l == NULL || target == NULL)
+    {
+        return 0;
+    }
+
+    node_tr* current = l->head;
+    while (current != NULL)
+    {
+        if (strcmp(current->target_friendly, target) == 0)
+        {
+            return 1;
+        }
+        current = current->next;
+    }
+    return 0;
+}
+
+// checking whether a given target is already a target by the friendly name
+int find_element_by_target(char* target)
+{
+    list_sc* l = &backups;
+
+    if (l == NULL || target == NULL)
+    {
+        return 0;
+    }
+    node_sc* current = l->head;
+    while (current != NULL)
+    {
+        if (find_element_by_target_help(&current->targets, target) == 1)
+        {
+            return 1;
+        }
+        current = current->next;
+    }
+    return 0;
+}
+
+// Function to find element by friendly source name
 node_sc* find_element_by_source(list_sc* l, char* source)
 {
     if (l == NULL || source == NULL)
@@ -201,7 +307,12 @@ node_sc* find_element_by_source(list_sc* l, char* source)
     node_sc* current = l->head;
     while (current != NULL)
     {
-        if (strcmp(current->source, source) == 0)
+        if (current->source_friendly == NULL)
+        {
+            fprintf(stderr, "BUG: current=%p, current->source == NULL (list corrupted)\n", (void*)current);
+            abort();
+        }
+        if (strcmp(current->source_friendly, source) == 0)
         {
             return current;
         }
@@ -212,35 +323,109 @@ node_sc* find_element_by_source(list_sc* l, char* source)
 
 /*
 
+BACKUPS
+
+*/
+
+int nftw_walk() { return 1; }
+
+void initial_backup(char* source, char* target) {
+
+
+
+}
+
+/*
+
 
 ADD
 
 
 */
+// finding whether a path is a subpath of another path
+int is_target_in_source(char* source, char* target)
+{
+    int i = 0;
+    int n = min((int)strlen(target), (int)strlen(source));
+    while (source[i] == target[i] && i < n)
+    {
+        i++;
+    }
+    if (i == (int)strlen(source))
+    {
+        return 1;
+    }
+
+    return 0;
+}
 int parse_targets(node_sc* to_add)
 {
     char* tok = strtok(NULL, " ");
     int cnt = 0;
     while (tok != NULL)
+
     {
+        
+        if (is_empty_dir(tok) < 0)
+        {
+            printf("Target has to be an empty directory!\n");
+            tok = strtok(NULL, " ");
+            continue;
+        }
+        char* real_tok = realpath(tok, NULL);
+        if (real_tok == NULL)
+        {
+            fprintf(stderr, "realpath failed for '%s': %s\n", tok, strerror(errno));
+            ERR("realpath");
+        }
+        if(find_element_by_target_help(&to_add->targets, tok)){
+            printf("This target already exists(%s)!\n", tok);
+            free(real_tok);
+            tok=strtok(NULL, " ");
+            continue;
+        }
+        if (is_target_in_source(to_add->source_friendly, tok))
+        {
+            printf("Target cannot lie in source!\n");
+            free(real_tok);
+            tok = strtok(NULL, " ");
+            continue;
+        }
+        
+        if (find_element_by_target(tok))
+        {
+            printf("Target already used!\n");
+            tok = strtok(NULL, " ");
+            free(real_tok);
+            continue;
+        }
+       
+
         node_tr* new_node = malloc(sizeof(node_tr));
+
         if (new_node == NULL)
         {
             ERR("malloc failed");
         }
-        new_node->target = strdup(tok);
-        if (new_node->target == NULL)
+
+        new_node->target_friendly = strdup(tok);
+        new_node->target_full = strdup(real_tok);
+
+        if (new_node->target_friendly == NULL || new_node->target_full == NULL)
         {
             ERR("strdup failed");
         }
+
         new_node->next = NULL;
         new_node->previous = NULL;
+
         // add to the list
         list_target_add(&to_add->targets, new_node);
         cnt++;
         tok = strtok(NULL, " ");
+        free(real_tok);
     }
-
+    puts("Finished parsing targets");
     return cnt;
 }
 
@@ -251,6 +436,12 @@ int take_input(list_sc* backups)
         return 0;
 
     int was_source_added = 0;
+    char* source_full = realpath(tok, NULL);
+    if (source_full == NULL)
+    {
+        fprintf(stderr, "Source directory doesn't exist '%s': %s\n", tok, strerror(errno));
+        return;
+    }
     node_sc* source_elem = find_element_by_source(backups, tok);
 
     if (source_elem == NULL)
@@ -260,15 +451,20 @@ int take_input(list_sc* backups)
         {
             ERR("malloc failed");
         }
-        source_elem->source = strdup(tok);
-        if (source_elem->source == NULL)
+
+        source_elem->source_friendly = strdup(tok);
+        source_elem->source_full = strdup(source_full);
+
+        if (source_elem->source_friendly == NULL || source_elem->source_full == NULL)
         {
             ERR("strdup failed");
         }
+
         source_elem->targets.head = NULL;
         source_elem->targets.tail = NULL;
         source_elem->targets.size = 0;
         was_source_added = 1;
+        fprintf(stderr, "NEW node_sc %p, source='%s'\n", (void*)source_elem, source_elem->source_friendly);
     }
 
     int cnt = parse_targets(source_elem);
@@ -277,11 +473,12 @@ int take_input(list_sc* backups)
     {
         list_source_add(backups, source_elem);
     }
-    else if (cnt == 0 && was_source_added)
+    else if (source_elem->targets.size == 0)
     {
         delete_source_node(source_elem);
     }
-
+    free(source_full);
+    puts("Finished taking input");
     return 1;
 }
 
@@ -299,7 +496,7 @@ void print_targets(list_tg* l)
     node_tr* current = l->head;
     while (current != NULL)
     {
-        printf("    Target: %s\n", current->target);
+        printf("    Target: '%s'  real path: '%s' \n", current->target_friendly, current->target_full);
         current = current->next;
     }
 }
@@ -308,8 +505,7 @@ void list_sources_and_targets(list_sc* l)
     node_sc* current = l->head;
     while (current != NULL)
     {
-        printf("Source: %s, ", current->source);
-
+        printf("Source: '%s', real path: '%s' ,", current->source_friendly, current->source_full);
         print_targets(&current->targets);
         current = current->next;
     }
@@ -346,15 +542,17 @@ void delete_backups_list(list_sc* backups)
 /*
 
 
-end
+END
 
 
 
 */
-void end(list_sc* l, char* source)
+void end(list_sc* l, char* source_friendly)
 {
+ 
+
     char* tok = strtok(NULL, " ");
-    node_sc* node_found = find_element_by_source(l, source);
+    node_sc* node_found = find_element_by_source(l, source_friendly);
     if (node_found == NULL)
     {
         puts("No such source");
@@ -363,10 +561,14 @@ void end(list_sc* l, char* source)
     int cnt = 0;
     while (tok != NULL)
     {
+        
+      
+        fprintf(stderr, "Trying to delete %s \n", tok);
         list_target_delete(&node_found->targets, tok);
 
         cnt++;
         tok = strtok(NULL, " ");
+       
     }
     if (cnt == 0)
     {
@@ -374,16 +576,17 @@ void end(list_sc* l, char* source)
     }
     if (node_found->targets.size == 0)
     {
-        list_source_delete(l, source);
+        list_source_delete(l, source_friendly);
     }
+    
 }
+
 int main()
 {
     char* buff = NULL;
     size_t z = 0;
     int n = 0;
 
-    list_sc backups;
     backups.head = NULL;
     backups.tail = NULL;
     backups.size = 0;
@@ -397,7 +600,11 @@ int main()
             buff[n - 1] = '\0';
         }
         char* tok = strtok(buff, " ");
-
+        if (tok == NULL)
+        {
+            printf("Invalid syntax\n");
+            continue;
+        }
         // input in the form add <source path> <target path> with multiple target paths
         if (strcmp(tok, "add") == 0)
         {

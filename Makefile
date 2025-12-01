@@ -1,7 +1,9 @@
 override CFLAGS=-std=c17 -Wall -Wextra -Wshadow -Wno-unused-parameter -Wno-unused-const-variable -g -O0 -fsanitize=address,undefined,leak
+override LDFLAGS=-fsanitize=address,undefined,leak
 
 ifdef CI
 override CFLAGS=-std=c17 -Wall -Wextra -Wshadow -Werror -Wno-unused-parameter -Wno-unused-const-variable
+override LDFLAGS=
 endif
 
 NAME=sop-backup
@@ -15,7 +17,7 @@ SOURCES=$(shell find src -type f -iname '*.c')
 OBJECTS=$(foreach x, $(basename $(SOURCES)), $(x).o)
 
 $(NAME): $(OBJECTS)
-	$(CC) $^ -o $@
+	$(CC) $(OBJECTS) -o $@ $(LDFLAGS)
 
 clean:
 	rm -f $(NAME) $(OBJECTS)
