@@ -11,6 +11,7 @@ list_sc backups;
 int inotify_fd;
 char * _source;
 char * _target;
+list_wd wd_list;
 /*-------------------*/
 
 /*
@@ -248,4 +249,144 @@ node_sc* find_element_by_source(char* source)
         current = current->next;
     }
     return NULL;
+}
+
+// Functions for wd list
+void delete_wd_node(int wd)
+{
+    list_wd* l = &wd_list;
+    if (l == NULL)
+    {
+        return;
+    }
+
+    Node_wd* current = l->head;
+    while (current != NULL)
+    {
+        if (current->wd == wd)
+        {
+           
+            if (current->prev != NULL)
+            {
+                current->prev->next = current->next;
+            }
+            else
+            {
+                l->head = current->next;
+            }
+
+            if (current->next != NULL)
+            {
+                current->next->prev = current->prev;
+            }
+            else
+            {
+                l->tail = current->prev;
+            }
+
+            free(current->source_friendly);
+            free(current->source_full);
+            free(current->path);
+            free(current);
+            l->size--;
+            return;
+        }
+        current = current->next;
+    }
+}
+
+void add_wd_node(int wd, char* source_friendly, char* source_full, char* path)
+{
+    list_wd* l = &wd_list;
+    if (l == NULL)
+    {
+        return;
+    }
+
+    Node_wd* new_node = malloc(sizeof(Node_wd));
+    if (new_node == NULL)
+    {
+        return;
+    }
+
+    new_node->wd = wd;
+    new_node->source_friendly = strdup(source_friendly);
+    new_node->source_full = strdup(source_full);
+    new_node->path = strdup(path);
+    new_node->next = NULL;
+    new_node->prev = l->tail;
+
+    if (l->tail != NULL)
+    {
+        l->tail->next = new_node;
+    }
+    else
+    {
+        l->head = new_node;
+    }
+
+    l->tail = new_node;
+    l->size++;
+}
+
+Node_wd* find_element_by_wd(int wd)
+{
+    list_wd* l = &wd_list;
+    if (l == NULL)
+    {
+        return NULL;
+    }
+
+    Node_wd* current = l->head;
+    while (current != NULL)
+    {
+        if (current->wd == wd)
+        {
+            return current;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+
+void delete_all_wd_by_path(char * source_friendly){
+    list_wd* l = &wd_list;
+    if (l == NULL)
+    {
+        return NULL;
+    }
+
+    Node_wd* current = l->head;
+    Node_wd* next;
+    while (current != NULL)
+    {       
+        next=current->next;
+        if (strcmp(current->source_friendly, source_friendly)==0)
+        {   
+
+            if (current->prev != NULL) {
+                current->prev->next = current->next;
+            } 
+            else {
+                l->head = current->next;
+            }
+            if (current->next != NULL) {
+                current->next->prev = current->prev;
+            } 
+            else {
+                l->tail = current->prev;
+            }
+            free(current->source_friendly);
+            free(current->source_full);
+            free(current->path);
+            free(current);
+            l->size--;
+
+        }
+        current = next;
+    }
+    
+
+
 }

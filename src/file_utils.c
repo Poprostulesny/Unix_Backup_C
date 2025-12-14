@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 
+#include <sys/inotify.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -159,7 +160,7 @@ char* get_path_to_target(const char* source, const char* target,  const char* pa
     {
         new_path[i] = '\0';
     }
-
+   
     return new_path;
 }
 void copy_file(const char* path1, const char* path2){
@@ -233,6 +234,7 @@ int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ft
     {
         copy_link(path,path_new);
     }
+    free(path_new);
     return 0;
 }
 
@@ -255,3 +257,10 @@ void initial_backup(char* source, char* target) {
     INOTIFY EVENT HANDLING
 
 */
+
+void create_watcher(char * source, char * target){
+
+
+
+}
+

@@ -1,0 +1,8 @@
+1. w mainie tworzymy inotify fd. - ok
+2. odpalamy input na watku - ok
+3. przenosimy robienie backupow na inny watek
+4. dodajemy mutexy do struktury list
+5. tworzymy mape wd na liscie
+6. tworzymy funkcje odczytująca inotify fd
+7. tworzymy handler dla masek inotify
+8. tworzymy liste wd - ok

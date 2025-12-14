@@ -12,18 +12,15 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/inotify.h>
+#include <pthread.h>
 #include "lists.h"
 #include "file_utils.h"
+
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 
-
-
-/*--------------------------------------------------*/
-
-
-
-
-
+int fd=-1;
+int finish_work_flag=0;
 /*
 
 
@@ -280,19 +277,11 @@ void end(char* source_friendly)
         list_source_delete(source_friendly);
     }
 }
-
-int main()
-{
-    char* buff = NULL;
+void* input_handler(void * arg){
     size_t z = 0;
+    char* buff = NULL;
     int n = 0;
-
-    backups.head = NULL;
-    backups.tail = NULL;
-    backups.size = 0;
-
     int k;
-
     while ((n = getline(&buff, &z, stdin)) > 1)
     {
         if (buff[n - 1] == '\n')
@@ -325,6 +314,7 @@ int main()
                 puts("Invalid syntax\n");
                 continue;
             }
+
             end(tok);
         }
         else if (strcmp(tok, "restore") == 0)
@@ -343,5 +333,34 @@ int main()
     }
     delete_backups_list();
     free(buff);
+
+
+
+
+}
+int main()
+{
+    
+    
+    
+
+    backups.head = NULL;
+    backups.tail = NULL;
+    backups.size = 0;
+    wd_list.head = NULL;
+    wd_list.tail = NULL;
+    wd_list.size = 0;
+
+    
+    if((fd=inotify_init1(IN_NONBLOCK|IN_CLOEXEC))==-1){
+        ERR("inotify_init1");
+    }
+    pthread_t input_thread;
+    if(pthread_create(&input_thread, NULL, input_handler, NULL)!= 0){
+        ERR("pthread_create");
+    }
+    
+    pthread_join(input_thread, NULL);
+    close(fd);
     return 0;
 }

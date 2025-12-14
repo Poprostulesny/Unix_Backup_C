@@ -41,4 +41,5 @@ void initial_backup(char* source, char* target);
     INOTIFY EVENT HANDLING
 */
 
+
 #endif /* FILE_UTILS_H */
