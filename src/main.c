@@ -393,7 +393,7 @@ int is_target_in_source(char* source, char* target)
 
 /*
 
-BACKUPS
+    INITIAL BACKUPS
 
 */
 /*Function that gets the full path for source and target, and current whole path, and returns the path from target to
@@ -527,10 +527,19 @@ void initial_backup(char* source, char* target) {
     printf("Finished\n");
 }
 
+/* 
+
+    INOTIFY EVENT HANDLING
+
+*/
+
+
+
+
 /*
 
 
-ADD
+    ADD
 
 
 */
