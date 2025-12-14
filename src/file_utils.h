@@ -14,7 +14,7 @@
 
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #define INOTIFY_MASK (IN_ATTRIB|IN_CLOSE_WRITE|IN_CREATE|IN_DELETE|IN_DELETE_SELF|IN_MOVE_SELF|IN_MOVED_FROM|IN_MOVED_TO|IN_IGNORED)
-
+#define BUF_SIZE 4096
 /* GLOBAL VARIABLES */
 extern char* _source;
 extern char* _source_friendly;

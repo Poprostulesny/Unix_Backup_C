@@ -311,6 +311,51 @@ void create_watcher(char * source, char * target){
 }
 
 void inotify_reader(){
+    char buffer[BUF_SIZE];
+    ssize_t bytes_read=0;
+
+    while (1) {
+        bytes_read = read(fd, buffer, BUF_SIZE);
+        
+        if (bytes_read == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+              break;
+            } 
+            else {
+                ERR("read");
+                break;
+            }
+        } 
+        else if (bytes_read > 0) {
+            
+            size_t offset = 0;
+            //Computing every struct in the buffer
+            while (offset < (size_t)bytes_read) {
+                struct inotify_event *event = (struct inotify_event *)(buffer + offset);
+                
+                // Is there enough data to fill the struct
+                if (offset + sizeof(struct inotify_event) > (size_t)bytes_read) {
+                    fprintf(stderr, "Partial header read!\n");
+                    break;
+                }
+                
+                // Is there enough space for the name
+                size_t event_size = sizeof(struct inotify_event) + event->len;
+                if (offset + event_size > (size_t)bytes_read) {
+                    lseek(fd, -bytes_read, SEEK_CUR);
+                    break;
+                }
+
+                add_inotify_event(event);
+                // Calculating the padding (by posix standard each entry aligned to 4 bytes)
+                size_t padding = (4 - (event_size % 4)) % 4;
+                offset += event_size + padding;
+            }
+        }
+
+        
+    }
+    free(buffer);
     
 
 
