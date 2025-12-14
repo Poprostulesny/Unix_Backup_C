@@ -18,7 +18,7 @@
 #include "lists.h"
 
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
-
+#define DEBUG
 
 int finish_work_flag = 0;
 /*
@@ -102,13 +102,18 @@ int parse_targets(node_sc* to_add)
         // Add to the list
         list_target_add(&to_add->targets, new_node);
         init_backup_add_job(strdup(to_add->source_full), strdup(new_node->target_full));
-        
+        #ifdef DEBUG  
         printf("Full source: '%s', friendly: '%s'\n", to_add->source_full, to_add->source_friendly);
-        cnt++;
+        
+        #endif
+         cnt++;
         tok = strtok(NULL, " ");
         free(real_tok);
     }
-    puts("Finished parsing targets");
+    #ifdef DEBUG
+         puts("Finished parsing targets");
+    #endif
+  
     return cnt;
 }
 
@@ -156,7 +161,10 @@ int take_input()
         source_elem->targets.tail = NULL;
         source_elem->targets.size = 0;
         was_source_added = 1;
-        fprintf(stderr, "NEW node_sc %p, source='%s'\n", (void*)source_elem, source_elem->source_full);
+        #ifdef DEBUG
+         fprintf(stderr, "NEW node_sc %p, source='%s'\n", (void*)source_elem, source_elem->source_full);
+    #endif
+      
     }
 
     // Parsing the list of targets
@@ -175,7 +183,10 @@ int take_input()
     }
 
     free(source_full);
-    puts("Finished taking input");
+    #ifdef DEBUG
+           puts("Finished taking input");
+    #endif
+
     return 1;
 }
 
@@ -187,12 +198,12 @@ LIST
 
 */
 void print_targets(list_tg* l)
-{
+{   
     printf("amount of targets: %d\n", l->size);
 
     node_tr* current = l->head;
     while (current != NULL)
-    {
+    {   
         printf("    Target: '%s'  real path: '%s' \n", current->target_friendly, current->target_full);
         current = current->next;
     }
@@ -257,8 +268,11 @@ void end(char* source_friendly)
     // For every target try to delete it from the list of targets
     int cnt = 0;
     while (tok != NULL)
-    {
-        fprintf(stderr, "Trying to delete %s \n", tok);
+    {   
+        #ifdef DEBUG
+       fprintf(stderr, "Trying to delete %s \n", tok);
+    #endif
+        
         list_target_delete(&node_found->targets, tok);
         cnt++;
         tok = strtok(NULL, " ");

@@ -107,7 +107,10 @@ void list_target_delete(list_tg* l, char* target)
             }
 
             delete_target_node(current);
-            printf("Deleted node with full path: %s\n", current->target_full);
+            #ifdef DEBUG
+        printf("Deleted node with full path: %s\n", current->target_full);
+            #endif
+           
             l->size--;
             return;
         }
@@ -124,7 +127,10 @@ void list_source_add(node_sc* new_node)
     {
         return;
     }
-    fprintf(stderr, "ADD node_sc %p (source=%s)\n", (void*)new_node, new_node->source_friendly);
+    #ifdef DEBUG
+        fprintf(stderr, "ADD node_sc %p (source=%s)\n", (void*)new_node, new_node->source_friendly);
+    #endif
+   
 
     new_node->next = l->head;
     new_node->previous = NULL;
@@ -152,7 +158,10 @@ void list_source_delete(char* source)
     }
 
     node_sc* current = l->head;
-    fprintf(stderr, "DEL node_sc %p (source=%s)\n", (void*)current, current->source_friendly);
+    #ifdef DEBUG
+          fprintf(stderr, "DEL node_sc %p (source=%s)\n", (void*)current, current->source_friendly);
+    #endif
+ 
 
     while (current != NULL)
     {
@@ -238,8 +247,11 @@ node_sc* find_element_by_source(char* source)
     while (current != NULL)
     {
         if (current->source_friendly == NULL)
-        {
-            fprintf(stderr, "BUG: current=%p, current->source == NULL (list corrupted)\n", (void*)current);
+        {   
+            #ifdef DEBUG
+         fprintf(stderr, "BUG: current=%p, current->source == NULL (list corrupted)\n", (void*)current);
+            #endif
+          
             abort();
         }
         if (strcmp(current->source_friendly, source) == 0)

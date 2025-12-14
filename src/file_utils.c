@@ -37,8 +37,11 @@ void checked_mkdir(const char* path)
     if (stat(path, &s))
         ERR("stat");
     if (!S_ISDIR(s.st_mode))
-    {
-        printf("%s is not a valid dir, exiting\n", path);
+    {   
+        #ifdef DEBUG
+       printf("%s is not a valid dir, exiting\n", path);
+         #endif
+        
         exit(EXIT_FAILURE);
     }
 }
@@ -171,7 +174,10 @@ char* get_path_to_target(const char* source, const char* target,  const char* pa
     return new_path;
 }
 void copy_file(const char* path1, const char* path2){
-    printf("Copying file %s to %s\n", path1, path2);
+    #ifdef DEBUG
+        printf("Copying file %s to %s\n", path1, path2);
+    #endif
+   
     int read_fd = open(path1, O_RDONLY);
     int write_fd = open(path2, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if(read_fd<0){
@@ -204,7 +210,10 @@ void copy_file(const char* path1, const char* path2){
     
 }
 void copy_link(const char * path_where, const char * path_dest){
-    printf("Copying symlink %s to %s\n", path_where, path_dest);
+    #ifdef DEBUG
+          printf("Copying symlink %s to %s\n", path_where, path_dest);
+    #endif
+ 
     char buff[1024];
     ssize_t l = readlink(path_where, buff, sizeof(buff)-1);
     if(l<0){
@@ -282,8 +291,10 @@ int backup_walk_inotify_init(const char * path, const struct stat* s, int flag, 
 }
 
 void initial_backup(char* source, char* target) { 
-    
-    printf("Doing an initial backup of %s to %s...\n", source, target);
+    #ifdef DEBUG
+        printf("Doing an initial backup of %s to %s...\n", source, target);
+    #endif
+   
     _source = strdup(source);
 
     _source_friendly = get_source_friendly(source);
@@ -295,7 +306,10 @@ void initial_backup(char* source, char* target) {
     nftw(source, backup_walk_inotify_init, 1024, FTW_PHYS); 
     free(_source);
     free(_target);
-    printf("Finished\n");
+    #ifdef DEBUG
+          printf("Finished\n");
+    #endif
+ 
 }
 
 /* 
@@ -342,10 +356,12 @@ void inotify_reader(){
                 // Is there enough space for the name
                 size_t event_size = sizeof(struct inotify_event) + event->len;
                 if (offset + event_size > (size_t)bytes_read) {
-                    lseek(fd, -bytes_read, SEEK_CUR);
+                    ERR("partial read");
                     break;
                 }
-
+                #ifdef DEBUG
+                printf("File: %.*s\n", event->len, event->name);
+                #endif
                 add_inotify_event(event);
                 // Calculating the padding (by posix standard each entry aligned to 4 bytes)
                 size_t padding = (4 - (event_size % 4)) % 4;
