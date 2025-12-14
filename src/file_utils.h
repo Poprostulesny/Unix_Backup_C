@@ -13,10 +13,13 @@
 #include <ftw.h>
 
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
+#define INOTIFY_MASK (IN_ATTRIB|IN_CLOSE_WRITE|IN_CREATE|IN_DELETE|IN_DELETE_SELF|IN_MOVE_SELF|IN_MOVED_FROM|IN_MOVED_TO|IN_IGNORED)
 
 /* GLOBAL VARIABLES */
 extern char* _source;
+extern char* _source_friendly;
 extern char* _target;
+extern int fd;
 /*-------------------*/
 
 /*
@@ -40,6 +43,7 @@ void initial_backup(char* source, char* target);
 /*
     INOTIFY EVENT HANDLING
 */
+int backup_walk_inotify_init(const char * path, const struct stat* s, int flag, struct FTW* ftw);
 
 
 #endif /* FILE_UTILS_H */

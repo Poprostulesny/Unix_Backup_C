@@ -6,12 +6,12 @@
 #include <string.h>
 #include "lists.h"
 
+
 /* GLOBAL VARIABLES*/
+list_bck init_backup_tasks;
 list_sc backups;
-int inotify_fd;
-char * _source;
-char * _target;
 list_wd wd_list;
+Ino_List inotify_events;
 /*-------------------*/
 
 /*
@@ -354,7 +354,7 @@ void delete_all_wd_by_path(char * source_friendly){
     list_wd* l = &wd_list;
     if (l == NULL)
     {
-        return NULL;
+        return;
     }
 
     Node_wd* current = l->head;
@@ -388,5 +388,190 @@ void delete_all_wd_by_path(char * source_friendly){
     }
     
 
+}
 
+// Functions for init backup tasks
+void init_backup_add_job(char* source, char* target)
+{
+    list_bck* l = &init_backup_tasks;
+    if (l == NULL || source == NULL || target == NULL)
+    {
+        return;
+    }
+
+    Node_init* new_node = malloc(sizeof(Node_init));
+    if (new_node == NULL)
+    {
+        return;
+    }
+
+    new_node->source_full = strdup(source);
+    new_node->target_full = strdup(target);
+    new_node->next = NULL;
+    new_node->prev = l->tail;  
+
+    if (l->tail != NULL)
+    {
+        l->tail->next = new_node;
+    }
+    else
+    {
+        l->head = new_node;
+    }
+
+    l->tail = new_node;
+    l->size++;
+}
+
+void init_backup_job_done()
+{
+    list_bck* l = &init_backup_tasks;
+    if (l == NULL || l->head == NULL)
+    {
+        return;
+    }
+
+    Node_init* to_delete = l->head;
+    l->head = to_delete->next;
+    if (l->head != NULL)
+    {
+        l->head->prev = NULL;
+    }
+    else
+    {
+        l->tail = NULL;
+    }
+
+    free(to_delete->source_full);
+    free(to_delete->target_full);
+    free(to_delete);
+    l->size--;
+}
+
+// Function to get source_friendly by source_full
+char* get_source_friendly(char* source_full)
+{
+    list_sc* l = &backups;
+    if (l == NULL || source_full == NULL)
+    {
+        return NULL;
+    }
+
+    node_sc* current = l->head;
+    while (current != NULL)
+    {
+        if (strcmp(current->source_full, source_full) == 0)
+        {
+            return strdup(current->source_friendly);
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+
+
+void add_inotify_event(struct inotify_event *event)
+{
+    Ino_List *l = &inotify_events;
+    if (l == NULL || event == NULL)
+    {
+        return;
+    }
+
+    Node_wd *wd_node = find_element_by_wd(event->wd);
+
+    Ino_Node *new_node = malloc(sizeof(Ino_Node));
+    if (new_node == NULL)
+    {
+        ERR("malloc");
+    }
+
+    new_node->wd = event->wd;
+    new_node->mask = event->mask;
+    new_node->cookie = event->cookie;
+    new_node->len = event->len;
+
+    if(event->name!=NULL){
+        new_node->name = strdup(event->name);
+        if(new_node->name==NULL){
+            ERR("strdup");
+        }
+    }
+    else{
+        new_node->name=NULL;
+    }
+    
+
+    //creating full path to the element
+    size_t path_len = strlen(wd_node->path);
+    size_t name_len;
+    if (event->len > 0) {
+        name_len = strlen(event->name);
+    } else {
+        name_len = 0;
+    }
+
+    size_t full_len = path_len;
+    if (name_len > 0) {
+        full_len += 1 + name_len;
+    }
+    full_len += 1; //adding '/'
+    new_node->full_path = malloc(full_len);
+
+    if (new_node->full_path == NULL)
+    {   
+        free(new_node->name);
+        free(new_node);
+        ERR("malloc");
+        return;
+    }
+
+    strcpy(new_node->full_path, wd_node->path);
+    if (name_len > 0)
+    {
+        strcat(new_node->full_path, "/");
+        strcat(new_node->full_path, event->name);
+    }
+
+    //adding the element
+    new_node->next = NULL;
+    new_node->prev = l->tail;
+
+    if (l->tail != NULL)
+    {
+        l->tail->next = new_node;
+    }
+    else
+    {
+        l->head = new_node;
+    }
+
+    l->tail = new_node;
+    l->size++;
+}
+
+void remove_inotify_event()
+{
+    Ino_List *l = &inotify_events;
+    if (l == NULL || l->head == NULL)
+    {
+        return;
+    }
+
+    Ino_Node *removed = l->head;
+    l->head = removed->next;
+    if (l->head != NULL)
+    {
+        l->head->prev = NULL;
+    }
+    else
+    {
+        l->tail = NULL;
+    }
+    l->size--;
+
+    free(removed->name);
+    free(removed->full_path);
+    free(removed);
 }

@@ -3,24 +3,24 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <ftw.h>
 #include <limits.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include<fcntl.h>
 #include <string.h>
+#include <sys/inotify.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <sys/inotify.h>
-#include <pthread.h>
-#include "lists.h"
 #include "file_utils.h"
+#include "lists.h"
 
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 
-int fd=-1;
-int finish_work_flag=0;
+
+int finish_work_flag = 0;
 /*
 
 
@@ -101,7 +101,8 @@ int parse_targets(node_sc* to_add)
 
         // Add to the list
         list_target_add(&to_add->targets, new_node);
-        initial_backup(to_add->source_full, new_node->target_full);
+        init_backup_add_job(strdup(to_add->source_full), strdup(new_node->target_full));
+        
         printf("Full source: '%s', friendly: '%s'\n", to_add->source_full, to_add->source_friendly);
         cnt++;
         tok = strtok(NULL, " ");
@@ -218,8 +219,6 @@ EXIT
 
 void delete_backups_list()
 {
-   
-
     // Free all elements in the list
     node_sc* current = backups.head;
     while (current != NULL)
@@ -245,7 +244,6 @@ END
 */
 void end(char* source_friendly)
 {
-    
     char* tok = strtok(NULL, " ");
 
     // Find the source node
@@ -277,11 +275,29 @@ void end(char* source_friendly)
         list_source_delete(source_friendly);
     }
 }
-void* input_handler(void * arg){
+
+void* backup_handler(void* arg)
+{
+    while (1)
+    {
+        while (init_backup_tasks.size != 0)
+        {
+            initial_backup(init_backup_tasks.head->source_full, init_backup_tasks.head->target_full);
+            init_backup_job_done();
+        }
+
+    }
+
+    return 1;
+}
+void* input_handler(void* arg)
+{
     size_t z = 0;
     char* buff = NULL;
     int n = 0;
     int k;
+    int thread_created = 0;
+    pthread_t backup_thread = 0;
     while ((n = getline(&buff, &z, stdin)) > 1)
     {
         if (buff[n - 1] == '\n')
@@ -298,6 +314,13 @@ void* input_handler(void * arg){
         // input in the form add <source path> <target path> with multiple target paths
         if (strcmp(tok, "add") == 0)
         {
+            if (thread_created == 0)
+            {
+                if (pthread_create(&backup_thread, NULL, backup_handler, NULL) == 0)
+                {
+                    ERR("pthread_create backup");
+                }
+            }
             if ((k = take_input()) == 0)
             {
                 // do smth
@@ -322,6 +345,12 @@ void* input_handler(void * arg){
         }
         else if (strcmp(tok, "exit") == 0)
         {
+            finish_work_flag = 1;
+
+            if(thread_created){
+                pthread_join(backup_thread, NULL);
+            }
+            
             delete_backups_list();
             free(buff);
             return 0;
@@ -331,19 +360,15 @@ void* input_handler(void * arg){
             list_sources_and_targets();
         }
     }
+    if(thread_created){
+        pthread_join(backup_thread, NULL);
+    }
     delete_backups_list();
     free(buff);
-
-
-
-
+    return 1;
 }
 int main()
 {
-    
-    
-    
-
     backups.head = NULL;
     backups.tail = NULL;
     backups.size = 0;
@@ -351,15 +376,16 @@ int main()
     wd_list.tail = NULL;
     wd_list.size = 0;
 
-    
-    if((fd=inotify_init1(IN_NONBLOCK|IN_CLOEXEC))==-1){
+    if ((fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC)) == -1)
+    {
         ERR("inotify_init1");
     }
     pthread_t input_thread;
-    if(pthread_create(&input_thread, NULL, input_handler, NULL)!= 0){
+    if (pthread_create(&input_thread, NULL, input_handler, NULL) != 0)
+    {
         ERR("pthread_create");
     }
-    
+
     pthread_join(input_thread, NULL);
     close(fd);
     return 0;

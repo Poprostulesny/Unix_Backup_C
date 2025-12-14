@@ -13,9 +13,16 @@
 #include <fcntl.h>
 #include <ftw.h>
 #include "file_utils.h"
+#include "lists.h"
 
-#define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 
+/*
+    GLOBAL VARIABLES
+*/
+char* _source;
+char* _source_friendly;
+char* _target;
+int fd;
 /*
     HELPER FUNCTIONS
 */
@@ -220,10 +227,14 @@ void copy_link(const char * path_where, const char * path_dest){
 
 int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ftw)
 {
-     char * path_new = get_path_to_target(_source,_target, path);
+    char * path_new = get_path_to_target(_source,_target, path);
+    if (path_new == NULL) {
+        ERR("get_path_to_target");
+    }   
     if (flag == FTW_D)
     {
         checked_mkdir(path_new);
+
     }
     else if (flag == FTW_F)
     {   
@@ -237,16 +248,51 @@ int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ft
     free(path_new);
     return 0;
 }
+int backup_walk_inotify_init(const char * path, const struct stat* s, int flag, struct FTW* ftw){
+
+    char * path_new = get_path_to_target(_source,_target, path);
+    if (path_new == NULL) {
+        ERR("get_path_to_target");
+    }
+    if (flag == FTW_D)
+    {
+        checked_mkdir(path_new);
+        int wd = inotify_add_watch(fd, path,INOTIFY_MASK );
+        if(wd==-1){
+            ERR("inotify_add_watch");
+        }
+        add_wd_node(wd, _source_friendly, _source, path_new);
+    }
+    else if (flag == FTW_F)
+    {   
+        copy_file(path, path_new);
+    }
+
+    else if (flag == FTW_SL)
+    {
+        copy_link(path,path_new);
+    }
+    free(path_new);
+    return 0;
+
+
+
+
+
+}
 
 void initial_backup(char* source, char* target) { 
     
     printf("Doing an initial backup of %s to %s...\n", source, target);
     _source = strdup(source);
+
+    _source_friendly = get_source_friendly(source);
+
     _target = strdup(target);
     if(_source==NULL||_target==NULL){
         ERR("strdup");
     }
-    nftw(source, backup_walk, 1024, FTW_PHYS); 
+    nftw(source, backup_walk_inotify_init, 1024, FTW_PHYS); 
     free(_source);
     free(_target);
     printf("Finished\n");
@@ -259,8 +305,13 @@ void initial_backup(char* source, char* target) {
 */
 
 void create_watcher(char * source, char * target){
-
+    
 
 
 }
 
+void inotify_reader(){
+    
+
+
+}

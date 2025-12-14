@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/inotify.h>
+#define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 
 typedef struct Node_target
 {
@@ -46,6 +48,7 @@ typedef struct Node_wd
     char* path;
 
 }Node_wd;
+
 typedef struct List_wd
 {
     struct Node_wd* head;
@@ -54,12 +57,48 @@ typedef struct List_wd
 
 }list_wd;
 
+typedef struct Node_init
+{
+    struct Node_init* next;
+    struct Node_init* prev;
+    char * source_full;
+    char* target_full;
+
+}Node_init;
+
+typedef struct Init_backup_task_list
+{
+    struct Node_init* head;
+    struct Node_init* tail;
+    int size;
+
+}list_bck;
+
+typedef struct Inotify_event_node
+{
+    struct Inotify_event_node * next;
+    struct Inotify_event_node * prev;
+    int wd;
+    uint32_t mask;
+    uint32_t cookie;
+    uint32_t len;
+    char* name;
+    char * full_path;
+
+}Ino_Node;
+
+typedef struct Inotify_List
+{
+    struct Inotify_event_node * head;
+    struct Inotify_event_node * tail;
+    int size;
+}Ino_List;
+
 /* GLOBAL VARIABLES*/
+extern list_bck init_backup_tasks;
 extern list_sc backups;
-extern int inotify_fd;
-extern char * _source;
-extern char * _target;
 extern list_wd wd_list;
+extern Ino_List inotify_events;
 /*-------------------*/
 
 /*
@@ -107,5 +146,19 @@ void delete_all_wd_by_path(char * source_friendly);
 // Function to find an element by wd
 Node_wd* find_element_by_wd(int wd);
 
+// Function to add a backup job to a queue
+void init_backup_add_job(char* source, char* target);
+
+//Function to mark the backup job as done
+void init_backup_job_done();
+
+// Function to get source_friendly by source_full
+char* get_source_friendly(char* source_full);
+
+// Function to add an inotify event to the end of the list
+void add_inotify_event(struct inotify_event *event);
+
+// Function to remove the inotify event from the front of the list
+void remove_inotify_event();
 
 #endif /* LISTS_H */
