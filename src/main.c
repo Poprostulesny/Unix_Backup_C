@@ -20,7 +20,7 @@
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #define DEBUG
 
-int finish_work_flag = 0;
+__sig_atomic_t finish_work_flag = 0;
 /*
 
 
@@ -101,7 +101,7 @@ int parse_targets(node_sc* to_add)
 
         // Add to the list
         list_target_add(&to_add->targets, new_node);
-        init_backup_add_job(strdup(to_add->source_full), strdup(new_node->target_full));
+        init_backup_add_job(to_add->source_full, to_add->source_friendly, new_node->target_full);
         #ifdef DEBUG  
         printf("Full source: '%s', friendly: '%s'\n", to_add->source_full, to_add->source_friendly);
         
@@ -160,6 +160,10 @@ int take_input()
         source_elem->targets.head = NULL;
         source_elem->targets.tail = NULL;
         source_elem->targets.size = 0;
+        if (pthread_mutex_init(&source_elem->targets.mtx, NULL) != 0)
+        {
+            ERR("pthread_mutex_init targets");
+        }
         was_source_added = 1;
         #ifdef DEBUG
          fprintf(stderr, "NEW node_sc %p, source='%s'\n", (void*)source_elem, source_elem->source_full);
@@ -293,18 +297,56 @@ void end(char* source_friendly)
 void* backup_handler(void* arg)
 {
     while (1)
-    {
-        while (init_backup_tasks.size != 0)
+    {   // init backup job
+        sleep(4);
+        pthread_mutex_lock(&init_backup_tasks.mtx);
+        Node_init* job = init_backup_tasks.head;
+        if (job != NULL)
         {
-            initial_backup(init_backup_tasks.head->source_full, init_backup_tasks.head->target_full);
-            init_backup_job_done();
+            // detach from queue under lock
+            init_backup_tasks.head = job->next;
+            if (init_backup_tasks.head != NULL)
+            {
+                init_backup_tasks.head->prev = NULL;
+            }
+            else
+            {
+                init_backup_tasks.tail = NULL;
+            }
+            init_backup_tasks.size--;
+        }
+        pthread_mutex_unlock(&init_backup_tasks.mtx);
+
+        if (job != NULL)
+        {
+            initial_backup(job->source_full, job->source_friendly, job->target_full);
+            free(job->source_full);
+            free(job->source_friendly);
+            free(job->target_full);
+            free(job);
+        }
+        //end init backup job
+
+        //read fd job
+        inotify_reader();
+        event_handler();
+
+        //end read fd job
+
+        pthread_mutex_lock(&init_backup_tasks.mtx);
+        int queue_empty = (init_backup_tasks.size == 0);
+        pthread_mutex_unlock(&init_backup_tasks.mtx);
+
+        if (finish_work_flag == 1 && queue_empty)
+        {
+            break;
         }
 
     }
 
-    return 1;
+    return NULL;
 }
-void* input_handler(void* arg)
+void input_handler()
 {
     size_t z = 0;
     char* buff = NULL;
@@ -312,11 +354,14 @@ void* input_handler(void* arg)
     int k;
     int thread_created = 0;
     pthread_t backup_thread = 0;
-    while ((n = getline(&buff, &z, stdin)) > 1)
+    while ((n = getline(&buff, &z, stdin)) != -1)
     {
         if (buff[n - 1] == '\n')
         {
             buff[n - 1] = '\0';
+        }
+        if(buff[0]=='\0'){
+            continue;
         }
 
         char* tok = strtok(buff, " ");
@@ -330,10 +375,11 @@ void* input_handler(void* arg)
         {
             if (thread_created == 0)
             {
-                if (pthread_create(&backup_thread, NULL, backup_handler, NULL) == 0)
+                if (pthread_create(&backup_thread, NULL, backup_handler, NULL) != 0)
                 {
                     ERR("pthread_create backup");
                 }
+                thread_created = 1;
             }
             if ((k = take_input()) == 0)
             {
@@ -359,48 +405,42 @@ void* input_handler(void* arg)
         }
         else if (strcmp(tok, "exit") == 0)
         {
-            finish_work_flag = 1;
+           
 
             if(thread_created){
+                finish_work_flag=1;
                 pthread_join(backup_thread, NULL);
             }
             
             delete_backups_list();
             free(buff);
-            return 0;
+            return;
         }
         else if (strcmp(tok, "list") == 0)
         {
             list_sources_and_targets();
         }
     }
+
     if(thread_created){
+        finish_work_flag=1;
         pthread_join(backup_thread, NULL);
     }
     delete_backups_list();
     free(buff);
-    return 1;
+    
 }
 int main()
 {
-    backups.head = NULL;
-    backups.tail = NULL;
-    backups.size = 0;
-    wd_list.head = NULL;
-    wd_list.tail = NULL;
-    wd_list.size = 0;
-
+    init_lists();
+    
     if ((fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC)) == -1)
     {
         ERR("inotify_init1");
     }
-    pthread_t input_thread;
-    if (pthread_create(&input_thread, NULL, input_handler, NULL) != 0)
-    {
-        ERR("pthread_create");
-    }
+    input_handler();
 
-    pthread_join(input_thread, NULL);
+    
     close(fd);
     return 0;
 }

@@ -1,9 +1,15 @@
 1. w mainie tworzymy inotify fd. - ok
 2. odpalamy input na watku - ok
 3. przenosimy robienie backupow na inny watek - ok
-4. dodajemy mutexy do struktury list 
+4. dodajemy mutexy do struktury list - ok 
 5. tworzymy mape wd na liscie - ok
-6. tworzymy funkcje odczytująca inotify fd
-7. tworzymy handler dla masek inotify
+6. tworzymy funkcje odczytująca inotify fd - ok 
+7. tworzymy handler dla masek inotify 
 8. tworzymy liste wd - ok
 9. napisac restore
+10. file permission handling - ok
+11. add file deleter - ok
+12. w copy file ustawienie czasow modyfikacji i tworzenia na ten sam - ok
+13. move to/from logika
+14.  tworzenie backupu folderu
+15. make copy_file work on both files and symlinks
