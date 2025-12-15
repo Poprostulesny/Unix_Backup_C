@@ -1,12 +1,26 @@
 #ifndef LISTS_H
 #define LISTS_H
 
-#include <stdio.h>
-#include <stdlib.h>
-#include<pthread.h>
-#include <string.h>
-#include <sys/inotify.h>
-#define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
+#include "lists_common.h"
+#include "list_targets.h"
+#include "list_sources.h"
+#include "list_wd.h"
+#include "list_init_backup.h"
+#include "list_inotify_events.h"
+#include "list_move_events.h"
+
+/* GLOBAL VARIABLES*/
+extern list_bck init_backup_tasks;
+extern list_sc backups;
+extern list_wd wd_list;
+extern Ino_List inotify_events;
+extern M_list move_events;
+/*-------------------*/
+
+// Initialize all global lists mutexes and reset their state
+void init_lists(void);
+
+#if 0
 
 typedef struct Node_target
 {
@@ -212,5 +226,9 @@ char* add_move_to_event(int cookie, char* move_to, char* full_dest_path);
 
 // Function to check and clean up expired move events
 void check_move_events_list();
+
+void delete_node(M_node * current, M_list * l);
+
+#endif /* legacy lists block */
 
 #endif /* LISTS_H */

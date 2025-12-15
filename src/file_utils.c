@@ -2,19 +2,6 @@
 #define _XOPEN_SOURCE 700
 #define DEBUG
 #include "file_utils.h"
-#include <dirent.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <ftw.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/inotify.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include "lists.h"
 
 /*
     GLOBAL VARIABLES
