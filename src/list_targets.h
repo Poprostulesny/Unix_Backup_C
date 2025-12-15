@@ -3,22 +3,6 @@
 
 #include "lists_common.h"
 
-typedef struct Node_target
-{
-    char* target_friendly;
-    char* target_full;
-    struct Node_target* next;
-    struct Node_target* previous;
-} node_tr;
-
-typedef struct List_target
-{
-    pthread_mutex_t mtx;
-    struct Node_target* head;
-    struct Node_target* tail;
-    int size;
-} list_tg;
-
 // Helper function to delete a single target node
 void delete_target_node(node_tr* node);
 

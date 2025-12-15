@@ -1,0 +1,134 @@
+#define _POSIX_C_SOURCE 200809L
+#define _XOPEN_SOURCE 700
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
+#include <sys/inotify.h>
+#include "list_inotify_events.h"
+#include "list_wd.h"
+
+#ifndef ERR
+#define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
+#endif
+
+extern Ino_List inotify_events;
+
+void add_inotify_event(struct inotify_event *event)
+{
+    Ino_List *l = &inotify_events;
+    if (l == NULL || event == NULL)
+    {
+        return;
+    }
+
+    Node_wd *wd_node = find_element_by_wd(event->wd);
+
+    Ino_Node *new_node = malloc(sizeof(Ino_Node));
+    if (new_node == NULL)
+    {
+        ERR("malloc");
+    }
+
+    new_node->wd = event->wd;
+    new_node->mask = event->mask;
+    new_node->cookie = event->cookie;
+    new_node->len = event->len;
+    
+    
+    new_node->name = strdup(event->name);
+    if(new_node->name==NULL){
+        ERR("strdup");
+    }
+   
+
+    //creating full path to the element
+    size_t path_len = strlen(wd_node->path);
+    size_t path_dest_len = strlen(wd_node->path_new);
+    size_t name_len;
+    if (event->len > 0) {
+        name_len = strlen(event->name);
+    } else {
+        name_len = 0;
+    }
+
+    size_t full_len = path_len;
+    size_t full_dest_len = path_dest_len;
+    if (name_len > 0) {
+        full_len += 1 + name_len;
+        full_dest_len+=1+name_len;
+    }
+    full_dest_len+=1;
+    full_len += 1; //adding '/'
+    new_node->full_path = malloc(full_len);
+    new_node->full_path_dest = malloc(full_dest_len);
+    
+    if (new_node->full_path == NULL|| new_node->full_path_dest==NULL)
+    {   free(new_node->full_path_dest);
+        free(new_node->name);
+        free(new_node);
+        ERR("malloc");
+        return;
+    }
+
+    strcpy(new_node->full_path, wd_node->path);
+    strcpy(new_node->full_path_dest, wd_node->path_new);
+    if (name_len > 0)
+    {
+        strcat(new_node->full_path, "/");
+        strcat(new_node->full_path, event->name);
+        strcat(new_node->full_path_dest, "/");
+        strcat(new_node->full_path_dest, event->name); 
+    }
+
+    //adding the element
+    new_node->next = NULL;
+    pthread_mutex_lock(&l->mtx);
+    new_node->prev = l->tail;
+
+    if (l->tail != NULL)
+    {
+        l->tail->next = new_node;
+    }
+    else
+    {
+        l->head = new_node;
+    }
+
+    l->tail = new_node;
+    l->size++;
+    pthread_mutex_unlock(&l->mtx);
+}
+
+void remove_inotify_event()
+{
+    Ino_List *l = &inotify_events;
+    if (l == NULL || l->head == NULL)
+    {
+        return;
+    }
+
+    pthread_mutex_lock(&l->mtx);
+    if (l->head == NULL)
+    {
+        pthread_mutex_unlock(&l->mtx);
+        return;
+    }
+    Ino_Node *removed = l->head;
+    l->head = removed->next;
+    if (l->head != NULL)
+    {
+        l->head->prev = NULL;
+    }
+    else
+    {
+        l->tail = NULL;
+    }
+    l->size--;
+    pthread_mutex_unlock(&l->mtx);
+    free(removed->full_path_dest);
+    free(removed->name);
+    free(removed->full_path);
+    free(removed);
+}
