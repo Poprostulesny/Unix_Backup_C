@@ -66,7 +66,7 @@ char* concat(int n, ...)
     return out;
 }
 
-char* get_end_suffix(char* base, char* full)
+char* get_end_suffix(const char* base,const char* full)
 {
     int i = 0;
     while (base[i] == full[i] && i < min(strlen(base), strlen(full)))

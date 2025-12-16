@@ -27,28 +27,30 @@ typedef struct List_target
     int size;
 } list_tg;
 
-/* Source list node and list structures */
-typedef struct Node_source
+/* Move events node and list structures */
+typedef struct Move_Node
 {   
-    char* source_full;
-    char* source_friendly;
-    int is_inotify_initialized;
-    int fd;
-    struct List_wd watchers;
-    struct Inotify_List events;
-    struct List_target targets;
-    struct Move_List mov_dict;
-    struct Node_source* next;
-    struct Node_source* previous;
-} node_sc;
+    uint32_t cookie;
+    char * move_from;
+    char * move_to;
+    int wd_from;
+    int source_to;
+    struct Node_source* source;
+    struct Move_Node * next;
+    struct Move_Node * prev;
+    time_t token;
+} M_node;
 
-typedef struct List_source
-{   
+typedef struct Move_List
+{
     pthread_mutex_t mtx;
-    struct Node_source* head;
-    struct Node_source* tail;
+    struct Move_Node* head;
+    struct Move_Node* tail;
     int size;
-} list_sc;
+} M_list;
+
+/* Source list node and list structures */
+
 
 /* Watch descriptor list node and list structures */
 typedef struct Node_wd
@@ -109,35 +111,31 @@ typedef struct Inotify_List
     struct Inotify_event_node * tail;
     int size;
 } Ino_List;
-
-/* Move events node and list structures */
-typedef struct Move_Node
+typedef struct Node_source
 {   
-    uint32_t cookie;
-    char * move_from;
-    char * move_to;
-    int wd_from;
-    int source_to;
-    char * suffix;
-    struct Move_Node * next;
-    struct Move_Node * prev;
-    time_t token;
-} M_node;
+    char* source_full;
+    char* source_friendly;
+    int is_inotify_initialized;
+    int fd;
+    struct List_wd watchers;
+    struct Inotify_List events;
+    struct List_target targets;
+    struct Move_List mov_dict;
+    struct Node_source* next;
+    struct Node_source* previous;
+} node_sc;
 
-typedef struct Move_List
-{
+typedef struct List_source
+{   
     pthread_mutex_t mtx;
-    struct Move_Node* head;
-    struct Move_Node* tail;
+    struct Node_source* head;
+    struct Node_source* tail;
     int size;
-} M_list;
-
+} list_sc;
 /* Global lists (defined in lists.c) */
 extern list_bck init_backup_tasks;
 extern list_sc backups;
-extern list_wd wd_list;
-extern Ino_List inotify_events;
-extern M_list move_events;
+
 
 // Initialize all global lists mutexes and reset their state
 void init_lists(void);

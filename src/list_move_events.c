@@ -19,7 +19,7 @@
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #endif
 
-extern M_list move_events;
+
 
 void delete_node(M_list* l, M_node * current){
     if (current->prev != NULL)
@@ -74,7 +74,14 @@ static void handle_expired_node(M_list* l, M_node* current, node_sc* source)
     if (current->move_from == NULL && current->move_to != NULL)
     {
         char* suf_to = get_end_suffix(source->source_full, current->move_to);
-        copy_to_all_targets(current->move_to, suf_to, &source->targets);
+        struct stat st;
+        lstat(current->move_to, &st);
+        if(!S_ISDIR(st.st_mode)){
+            copy_to_all_targets(current->move_to, suf_to, &source->targets, source->source_full);
+        }
+        else{
+            new_folder_init(source, current->move_to);
+        }
         free(suf_to);
     }
     else if (current->move_to == NULL && current->move_from != NULL)
@@ -87,7 +94,7 @@ static void handle_expired_node(M_list* l, M_node* current, node_sc* source)
     delete_node(l, current);
 }
 
-void add_move_event(M_list* l, int cookie, const char* path, int is_from, node_sc* source)
+void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, node_sc* source)
 {
     if (l == NULL || path == NULL || source == NULL)
     {

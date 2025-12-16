@@ -22,6 +22,7 @@
 extern char* _source;
 extern char* _source_friendly;
 extern char* _target;
+extern node_sc * _source_node;
 /*-------------------*/
 
 void checked_mkdir(const char* path);
@@ -34,5 +35,5 @@ void copy_file(const char* path1, const char* path2);
 void copy_link(const char* path_where, const char* path_dest);
 void copy(const char* source, const char * dest,  const char *  backup_source, const char * backup_target);
 int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ftw);
-void copy_to_all_targets(const char * source_path, const char * file_suffix, list_tg *l );
+void copy_to_all_targets(const char * source_path, const char * file_suffix, list_tg *l, char * source_full );
 #endif /* GENERIC_FILE_FUNCTIONS_H */

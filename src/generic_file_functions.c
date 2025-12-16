@@ -10,16 +10,18 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include<pthread.h>
+#include <pthread.h>
 #include <string.h>
 #include "lists_common.h"
 #include "generic_file_functions.h"
 #include "utils.h"
 
-
 #ifndef ERR
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #endif
+
+/* defined here, declared in header */
+node_sc* _source_node;
 
 void checked_mkdir(const char* path)
 {
@@ -136,10 +138,6 @@ void copy_permissions_and_attributes_all_targets(const char* source_path, const 
     }
 
     pthread_mutex_unlock(&l->mtx);
-
-
-
-
 }
 
 /*-----------------------------------------------------*/
@@ -158,7 +156,6 @@ char* get_path_to_target(const char* source, const char* target, const char* pat
     t = strlen(target);
     p = strlen(path);
     char* new_path = malloc(sizeof(char) * (p - s + t + 5));
-    // if(!new_path) ERR("malloc");
     int i = 0;
     while (i < t)
     {
@@ -198,6 +195,31 @@ void copy_file(const char* path1, const char* path2)
 #ifdef DEBUG
     printf("Copying file %s to %s\n", path1, path2);
 #endif
+
+    /* Ensure destination directory exists */
+    char* dest_dir = strdup(path2);
+    if (dest_dir == NULL)
+    {
+        ERR("strdup");
+    }
+    char* last_sep = strrchr(dest_dir, '/');
+    if (last_sep != NULL)
+    {
+        *last_sep = '\0';
+#ifdef DEBUG
+        printf("[copy_file] making path for dest dir: %s\n", dest_dir);
+#endif
+        make_path(dest_dir);
+        /* make_path builds all parents, but not the last component; ensure the leaf dir exists */
+        checked_mkdir(dest_dir);
+    }
+#ifdef DEBUG
+    else
+    {
+        printf("[copy_file] no directory component in path: %s\n", path2);
+    }
+#endif
+    free(dest_dir);
 
     int read_fd = open(path1, O_RDONLY);
     int write_fd = open(path2, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -267,41 +289,70 @@ void copy_link(const char* path_where, const char* path_dest)
 }
 
 void copy(const char* source, const char* dest, const char* backup_source, const char* backup_target) {
-    struct stat st; 
+    struct stat st;
 
-    if(lstat(source, &st)==-1){
-        if(errno!=ENOENT){
+    if (lstat(source, &st) == -1) {
+        if (errno != ENOENT) {
             ERR("lstat");
-
-        }
-        else{
+        } else {
             return;
         }
-    }   
-    
-    if(st.st_mode==S_IFLNK){
+    }
+
+    if (S_ISLNK(st.st_mode)) {
         _source = backup_source;
         _target = backup_target;
-        copy_link(source, dest );
-        _target= NULL;
-        _source=NULL;
-    }
-    else if(st.st_mode==S_IFREG){
+        copy_link(source, dest);
+        _target = NULL;
+        _source = NULL;
+    } else if (S_ISREG(st.st_mode)) {
         copy_file(source, dest);
     }
-   
 }
-void copy_to_all_targets(const char * source_path, const char * file_suffix, list_tg *l ){
-    pthread_mutex_lock(&l->mtx);
-    node_tr *current = l->head;
 
-    while(current!=NULL){
-        char * desination_path = concat(2, current->target_full, file_suffix);
-        copy_file(source_path, desination_path);
-        current=current->next;
-        free(desination_path);
+void copy_to_all_targets(const char* source_path, const char* file_suffix, list_tg* l, char* source_full)
+{
+    if (source_path == NULL || file_suffix == NULL || l == NULL || source_full == NULL)
+    {
+        return;
     }
 
+    struct stat st;
+    if (lstat(source_path, &st) == -1)
+    {
+        if (errno == ENOENT)
+        {
+            return;
+        }
+        ERR("lstat");
+    }
+
+    pthread_mutex_lock(&l->mtx);
+    node_tr* current = l->head;
+
+    while (current != NULL)
+    {
+        char* destination_path = concat(2, current->target_full, file_suffix);
+        if (destination_path == NULL)
+        {
+            current = current->next;
+            continue;
+        }
+
+        if (S_ISDIR(st.st_mode))
+        {
+            make_path(destination_path);
+            checked_mkdir(destination_path);
+            copy_permissions_and_attributes(source_path, destination_path);
+        }
+        else
+        {
+            copy(source_path, destination_path, source_full, current->target_full);
+        }
+
+        free(destination_path);
+        current = current->next;
+    }
     pthread_mutex_unlock(&l->mtx);
 }
 
@@ -317,11 +368,11 @@ int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ft
         checked_mkdir(path_new);
     }
     else if (flag == FTW_F)
-    {   
+    {
         char* suf = get_end_suffix(_source, path);
-        copy_to_all_targets(path,suf,   );
+        copy_to_all_targets(path, suf, &_source_node->targets, _source_node->source_full);
+        free(suf);
     }
-
     else if (flag == FTW_SL)
     {
         copy_link(path, path_new);
