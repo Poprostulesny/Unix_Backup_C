@@ -8,6 +8,7 @@
 #include <sys/inotify.h>
 #include "list_inotify_events.h"
 #include "list_wd.h"
+#include "utils.h"
 
 #ifndef ERR
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
@@ -44,7 +45,6 @@ void add_inotify_event(list_wd* wd_list, Ino_List* l, struct inotify_event *even
 
     //creating full path to the element
     size_t path_len = strlen(wd_node->path);
-    size_t path_dest_len = strlen(wd_node->path_new);
     size_t name_len;
     if (event->len > 0) {
         name_len = strlen(event->name);
@@ -53,18 +53,14 @@ void add_inotify_event(list_wd* wd_list, Ino_List* l, struct inotify_event *even
     }
 
     size_t full_len = path_len;
-    size_t full_dest_len = path_dest_len;
     if (name_len > 0) {
         full_len += 1 + name_len;
-        full_dest_len+=1+name_len;
     }
-    full_dest_len+=1;
     full_len += 1; //adding '/'
     new_node->full_path = malloc(full_len);
-    new_node->full_path_dest = malloc(full_dest_len);
     
-    if (new_node->full_path == NULL|| new_node->full_path_dest==NULL)
-    {   free(new_node->full_path_dest);
+    if (new_node->full_path == NULL)
+    {
         free(new_node->name);
         free(new_node);
         ERR("malloc");
@@ -72,13 +68,23 @@ void add_inotify_event(list_wd* wd_list, Ino_List* l, struct inotify_event *even
     }
 
     strcpy(new_node->full_path, wd_node->path);
-    strcpy(new_node->full_path_dest, wd_node->path_new);
     if (name_len > 0)
     {
         strcat(new_node->full_path, "/");
         strcat(new_node->full_path, event->name);
-        strcat(new_node->full_path_dest, "/");
-        strcat(new_node->full_path_dest, event->name); 
+    }
+
+    new_node->suffix = get_end_suffix(wd_node->source_full, new_node->full_path);
+    if (new_node->suffix == NULL)
+    {
+        new_node->suffix = strdup("");
+    }
+    if (new_node->suffix == NULL)
+    {
+        free(new_node->full_path);
+        free(new_node->name);
+        free(new_node);
+        ERR("strdup");
     }
 
     //adding the element
@@ -125,8 +131,8 @@ void remove_inotify_event(Ino_List* l)
     }
     l->size--;
     pthread_mutex_unlock(&l->mtx);
-    free(removed->full_path_dest);
     free(removed->name);
+    free(removed->suffix);
     free(removed->full_path);
     free(removed);
 }

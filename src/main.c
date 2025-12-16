@@ -183,6 +183,20 @@ int take_input()
         {
             ERR("pthread_mutex_init targets");
         }
+        source_elem->watchers.head = NULL;
+        source_elem->watchers.tail = NULL;
+        source_elem->watchers.size = -1;
+        memset(&source_elem->watchers.mtx, 0, sizeof(pthread_mutex_t));
+
+        source_elem->events.head = NULL;
+        source_elem->events.tail = NULL;
+        source_elem->events.size = -1;
+        memset(&source_elem->events.mtx, 0, sizeof(pthread_mutex_t));
+
+        source_elem->mov_dict.head = NULL;
+        source_elem->mov_dict.tail = NULL;
+        source_elem->mov_dict.size = -1;
+        memset(&source_elem->mov_dict.mtx, 0, sizeof(pthread_mutex_t));
         was_source_added = 1;
         #ifdef DEBUG
          fprintf(stderr, "NEW node_sc %p, source='%s'\n", (void*)source_elem, source_elem->source_full);
@@ -312,6 +326,17 @@ void end(char* source_friendly)
         list_source_delete(source_friendly);
     }
 }
+void inotify_jobs(){
+    pthread_mutex_lock(&backups.mtx);
+    node_sc * current = backups.head;
+
+    while(current!=NULL){
+        inotify_reader(current->fd, &current->watchers, &current->events);
+        event_handler(&current->watchers, &current->events);
+        current=current->next;
+    }
+     pthread_mutex_lock(&backups.mtx);
+}
 
 void* backup_handler(void* arg)
 {
@@ -347,16 +372,14 @@ void* backup_handler(void* arg)
         //end init backup job
 
         //read fd job
-        inotify_reader();
-        event_handler();
+        
+        inotify_jobs();
 
         //end read fd job
 
-        pthread_mutex_lock(&init_backup_tasks.mtx);
-        int queue_empty = (init_backup_tasks.size == 0);
-        pthread_mutex_unlock(&init_backup_tasks.mtx);
+    
 
-        if (finish_work_flag == 1 && queue_empty)
+        if (finish_work_flag == 1)
         {
             break;
         }

@@ -48,8 +48,7 @@ void delete_wd_node(list_wd* l, int wd)
                 free(current->source_friendly);
                 free(current->source_full);
                 free(current->path);
-                free(current->path_new);
-                free(current->full_target_path);
+                free(current->suffix);
                 free(current);
             l->size--;
             pthread_mutex_unlock(&l->mtx);
@@ -60,7 +59,7 @@ void delete_wd_node(list_wd* l, int wd)
     pthread_mutex_unlock(&l->mtx);
 }
 
-void add_wd_node(list_wd* l, int wd, char* source_friendly, char* source_full, char* path_new, const char* path, const char* full_target_path)
+void add_wd_node(list_wd* l, int wd, char* source_friendly, char* source_full, const char* path, const char* suffix)
 {
     if (l == NULL)
     {
@@ -77,16 +76,21 @@ void add_wd_node(list_wd* l, int wd, char* source_friendly, char* source_full, c
     new_node->source_friendly = strdup(source_friendly);
     new_node->source_full = strdup(source_full);
     new_node->path = strdup(path);
-    new_node->path_new = strdup(path_new);
-    new_node->full_target_path = strdup(full_target_path);
+    if (suffix != NULL)
+    {
+        new_node->suffix = strdup(suffix);
+    }
+    else
+    {
+        new_node->suffix = strdup("");
+    }
     new_node->next = NULL;
-    if (new_node->source_friendly == NULL || new_node->source_full == NULL || new_node->path == NULL || new_node->path_new == NULL || new_node->full_target_path == NULL)
+    if (new_node->source_friendly == NULL || new_node->source_full == NULL || new_node->path == NULL || new_node->suffix == NULL)
     {
         free(new_node->source_friendly);
         free(new_node->source_full);
         free(new_node->path);
-        free(new_node->path_new);
-        free(new_node->full_target_path);
+        free(new_node->suffix);
         free(new_node);
         ERR("strdup");
     }
@@ -160,8 +164,7 @@ void delete_all_wd_by_path(list_wd* l, char * source_friendly){
             free(current->source_friendly);
             free(current->source_full);
             free(current->path);
-            free(current->path_new);
-            free(current->full_target_path);
+            free(current->suffix);
             free(current);
             l->size--;
 

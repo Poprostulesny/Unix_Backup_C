@@ -33,7 +33,11 @@ typedef struct Node_source
     char* source_full;
     char* source_friendly;
     int is_inotify_initialized;
+    int fd;
+    struct List_wd watchers;
+    struct Inotify_List events;
     struct List_target targets;
+    struct Move_List mov_dict;
     struct Node_source* next;
     struct Node_source* previous;
 } node_sc;
@@ -54,10 +58,8 @@ typedef struct Node_wd
     int wd;
     char* source_friendly;
     char* source_full;
-    char* path_new;
     char* path;
-    char* full_target_path;
-    char * suffix;
+    char* suffix;
 } Node_wd;
 
 typedef struct List_wd
@@ -98,7 +100,6 @@ typedef struct Inotify_event_node
     char* name;
     char * full_path;
     char * suffix;
-    char* full_path_dest;
 } Ino_Node;
 
 typedef struct Inotify_List
@@ -115,7 +116,6 @@ typedef struct Move_Node
     uint32_t cookie;
     char * move_from;
     char * move_to;
-    char * full_dest_path;
     int wd_from;
     int source_to;
     char * suffix;

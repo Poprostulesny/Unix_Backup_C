@@ -317,8 +317,9 @@ int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ft
         checked_mkdir(path_new);
     }
     else if (flag == FTW_F)
-    {
-        copy_file(path, path_new);
+    {   
+        char* suf = get_end_suffix(_source, path);
+        copy_to_all_targets(path,suf,   );
     }
 
     else if (flag == FTW_SL)

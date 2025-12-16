@@ -7,7 +7,7 @@
 char* add_move_from_event(M_list* l, int cookie, char* move_from);
 
 // Function to handle a MOVED_TO event; returns corresponding move_from if cookie matches, otherwise adds new node
-char* add_move_to_event(M_list* l, int cookie, char* move_to, char* full_dest_path, int wd_to);
+char* add_move_to_event(M_list* l, int cookie, char* move_to, int wd_to);
 
 // Function to check and clean up expired move events
 void check_move_events_list(M_list* l);

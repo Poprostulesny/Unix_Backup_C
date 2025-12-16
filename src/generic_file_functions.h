@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "lists_common.h"
 
 /* GLOBAL VARIABLES */
 extern char* _source;

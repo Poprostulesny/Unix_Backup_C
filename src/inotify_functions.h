@@ -12,10 +12,6 @@
 #include <ftw.h>
 #include "lists_common.h"
 
-/* GLOBAL VARIABLES */
-extern int _fd;
-/*-------------------*/
-
 int backup_walk_inotify_init(const char* path, const struct stat* s, int flag, struct FTW* ftw);
 void initial_backup(char* source, char* source_friendly, char* target);
 // helper for recursive_deleter
@@ -25,9 +21,10 @@ void recursive_deleter(char* path);
 //just exists dont worry abt it
 void create_watcher(char* source, char* target);
 
-void new_folder_init(char* source, char* source_friendly, char* path, char * target, int fd);
+void new_folder_init(node_sc* source_node, char* path);
 void inotify_reader(int fd, list_wd* wd_list, Ino_List* inotify);
 void event_handler(list_wd* wd_list, Ino_List* inotify);
-void del_handling(void* event);
+void del_handling(const char* dest_path);
+static void for_each_target_path(node_sc* source_node, const char* suffix, void (*f)(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx), void* ctx);
 
 #endif /* INOTIFY_FUNCTIONS_H */

@@ -1,6 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 
+//How long in seconds will the values be held in mov buffer
+#define MOV_TIME 15.0
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -74,7 +77,7 @@ char* add_move_from_event(M_list* l, int cookie, char* move_from)
             
             
         }
-        else if (difftime(current_time, current->token) > 10.0)
+        else if (difftime(current_time, current->token) > MOV_TIME)
         {
             // Placeholder: node expired (only move_from or only move_to)
             #ifdef DEBUG
@@ -103,14 +106,12 @@ char* add_move_from_event(M_list* l, int cookie, char* move_from)
     new_node->cookie = cookie;
     new_node->move_from = strdup(move_from);
     new_node->move_to = NULL;
-    // new_node->full_dest_path = strdup(full_dest_path);
     new_node->token = current_time;
     new_node->next = NULL;
 
-    if (new_node->move_from == NULL || new_node->full_dest_path == NULL)
+    if (new_node->move_from == NULL)
     {
         free(new_node->move_from);
-        // free(new_node->full_dest_path);
         free(new_node);
         ERR("strdup");
     }
@@ -136,9 +137,9 @@ char* add_move_from_event(M_list* l, int cookie, char* move_from)
     return NULL;
 }
 
-char* add_move_to_event(M_list* l, int cookie, char* move_to, char* full_dest_path, int wd_to)
+char* add_move_to_event(M_list* l, int cookie, char* move_to, int wd_to)
 {
-    if (l == NULL || move_to == NULL || full_dest_path == NULL)
+    if (l == NULL || move_to == NULL)
     {
         return NULL;
     }
@@ -160,7 +161,7 @@ char* add_move_to_event(M_list* l, int cookie, char* move_to, char* full_dest_pa
             
             delete_node(l, current);
         }
-        else if (difftime(current_time, current->token) > 10.0)
+        else if (difftime(current_time, current->token) > MOV_TIME)
         {
             // Placeholder: node expired (only move_from or only move_to)
             #ifdef DEBUG
@@ -189,14 +190,12 @@ char* add_move_to_event(M_list* l, int cookie, char* move_to, char* full_dest_pa
     new_node->cookie = cookie;
     new_node->move_from = NULL;
     new_node->move_to = strdup(move_to);
-    new_node->full_dest_path = strdup(full_dest_path);
     new_node->token = current_time;
     new_node->next = NULL;
 
-    if (new_node->move_to == NULL || new_node->full_dest_path == NULL)
+    if (new_node->move_to == NULL)
     {
         free(new_node->move_to);
-        free(new_node->full_dest_path);
         free(new_node);
         ERR("strdup");
     }
@@ -223,7 +222,7 @@ char* add_move_to_event(M_list* l, int cookie, char* move_to, char* full_dest_pa
     return NULL;
 }
 
-void check_move_events_list(M_list* l)
+void check_move_events_list(M_list* l, list_tg * targets)
 {
     if (l == NULL)
     {
@@ -247,7 +246,8 @@ void check_move_events_list(M_list* l)
                 //if it is a directory use the goofy ass version
                 //if it is a symlink then goofy^2 method
                 // copy(current->move_to, )
-                copy_to_all_targets(current->move_to, current->suffix, l);
+
+                copy_to_all_targets(current->move_to, current->suffix,targets );
             }
             if(current->move_to==NULL){
                 //delete the file

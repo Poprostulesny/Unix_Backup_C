@@ -7,6 +7,9 @@
 #include <pthread.h>
 #include "list_sources.h"
 #include "list_targets.h"
+#include "list_wd.h"
+#include "list_inotify_events.h"
+#include "list_move_events.h"
 
 #ifndef ERR
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
@@ -37,6 +40,18 @@ void delete_source_node(node_sc* node)
         }
         pthread_mutex_unlock(&node->targets.mtx);
         pthread_mutex_destroy(&node->targets.mtx);
+        if (node->watchers.size != -1)
+        {
+            pthread_mutex_destroy(&node->watchers.mtx);
+        }
+        if (node->events.size != -1)
+        {
+            pthread_mutex_destroy(&node->events.mtx);
+        }
+        if (node->mov_dict.size != -1)
+        {
+            pthread_mutex_destroy(&node->mov_dict.mtx);
+        }
         free(node);
     }
 }
@@ -52,6 +67,47 @@ void list_source_add(node_sc* new_node)
     #ifdef DEBUG
         fprintf(stderr, "ADD node_sc %p (source=%s)\n", (void*)new_node, new_node->source_friendly);
     #endif
+
+    if (new_node->targets.head == NULL && new_node->targets.tail == NULL && new_node->targets.size == 0)
+    {
+        if (pthread_mutex_init(&new_node->targets.mtx, NULL) != 0)
+        {
+            ERR("pthread_mutex_init targets");
+        }
+    }
+
+    if (new_node->watchers.size == -1)
+    {
+        new_node->watchers.head = NULL;
+        new_node->watchers.tail = NULL;
+        new_node->watchers.size = 0;
+        if (pthread_mutex_init(&new_node->watchers.mtx, NULL) != 0)
+        {
+            ERR("pthread_mutex_init watchers");
+        }
+    }
+
+    if (new_node->events.size == -1)
+    {
+        new_node->events.head = NULL;
+        new_node->events.tail = NULL;
+        new_node->events.size = 0;
+        if (pthread_mutex_init(&new_node->events.mtx, NULL) != 0)
+        {
+            ERR("pthread_mutex_init events");
+        }
+    }
+
+    if (new_node->mov_dict.size == -1)
+    {
+        new_node->mov_dict.head = NULL;
+        new_node->mov_dict.tail = NULL;
+        new_node->mov_dict.size = 0;
+        if (pthread_mutex_init(&new_node->mov_dict.mtx, NULL) != 0)
+        {
+            ERR("pthread_mutex_init move_events");
+        }
+    }
    
     pthread_mutex_lock(&l->mtx);
     new_node->next = l->head;

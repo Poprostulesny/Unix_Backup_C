@@ -10,11 +10,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include "inotify_functions.h"
 #include "generic_file_functions.h"
 #include "lists_common.h"
 #include "list_wd.h"
 #include "list_inotify_events.h"
+#include "list_sources.h"
+#include "utils.h"
 
 #ifndef DEBUG
 #define DEBUG
@@ -33,35 +36,103 @@
                       IN_MOVE_SELF | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB)
 #endif
 
+extern int fd;
 
+//template function for all operations for all paths
+static void for_each_target_path(node_sc* source_node, const char* suffix, void (*f)(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx), void* ctx)
+{
+    if (source_node == NULL || f == NULL)
+    {
+        return;
+    }
+
+    const char* safe_suffix = (suffix != NULL) ? suffix : "";
+
+    pthread_mutex_lock(&source_node->targets.mtx);
+    node_tr* current = source_node->targets.head;
+    while (current != NULL)
+    {
+        char* dest_path = concat(2, current->target_full, safe_suffix);
+        if (dest_path == NULL)
+        {
+            current = current->next;
+            continue;
+        }
+        cb(dest_path, current, source_node, ctx);
+        free(dest_path);
+        current = current->next;
+    }
+    pthread_mutex_unlock(&source_node->targets.mtx);
+}
+
+static void create_empty_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+{
+    //mowimy kompilatorowi ze nie uzywamy
+    (void)target;
+    (void)source_node;
+    const char* src_path = (const char*)ctx;
+    int write_fd = open(dest_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (write_fd < 0)
+    {
+        ERR("fd");
+    }
+    if (close(write_fd) < 0)
+    {
+        ERR("close fd");
+    }
+    if (src_path != NULL)
+    {
+        copy_permissions_and_attributes(src_path, dest_path);
+    }
+}
+
+static void copy_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+{
+    const char* source_path = (const char*)ctx;
+    if (source_path == NULL || source_node == NULL)
+    {
+        return;
+    }
+    copy(source_path, dest_path, source_node->source_full, target->target_full);
+}
+
+static void attribs(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+{
+    (void)target;
+    (void)source_node;
+    const char* src_path = (const char*)ctx;
+    copy_permissions_and_attributes(src_path, dest_path);
+}
+
+static void delete_multi(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+{
+    (void)target;
+    (void)source_node;
+    (void)ctx;
+    del_handling(dest_path);
+}
 
 int backup_walk_inotify_init(const char* path, const struct stat* s, int flag, struct FTW* ftw)
 {
-    char* path_new = get_path_to_target(_source, _target, path);
-    if (path_new == NULL)
-    {
-        ERR("get_path_to_target");
-    }
     if (flag == FTW_D)
     {
-        checked_mkdir(path_new);
-        int wd = inotify_add_watch(_fd, path, INOTIFY_MASK);
+        int wd = inotify_add_watch(fd, path, INOTIFY_MASK);
         if (wd == -1)
         {
             ERR("inotify_add_watch");
         }
-        add_wd_node(&wd_list, wd, _source_friendly, _source, path_new, path, path_new);
+        char* suffix = get_end_suffix(_source, (char*)path);
+        if (suffix == NULL)
+        {
+            suffix = strdup("");
+            if (suffix == NULL)
+            {
+                ERR("strdup");
+            }
+        }
+        add_wd_node(&wd_list, wd, _source_friendly, _source, path, suffix);
+        free(suffix);
     }
-    else if (flag == FTW_F)
-    {
-        copy_file(path, path_new);
-    }
-
-    else if (flag == FTW_SL)
-    {
-        copy_link(path, path_new);
-    }
-    free(path_new);
     return 0;
 }
 
@@ -70,17 +141,25 @@ void initial_backup(char* source, char* source_friendly, char* target)
 #ifdef DEBUG
     printf("Doing an initial backup of %s to %s...\n", source, target);
 #endif
+    node_sc* src_node = find_element_by_source(source_friendly);
 
     _source = source;
-    _source_friendly = source_friendly;
     _target = target;
 
-    if (_source == NULL || _source_friendly == NULL || _target == NULL)
+    if (_source == NULL || _target == NULL)
     {
-        ERR("strdup");
+        ERR("initial_backup");
     }
-    nftw(source, backup_walk_inotify_init, 1024, FTW_PHYS);
-    _source_friendly = NULL;
+    nftw(source, backup_walk, 1024, FTW_PHYS);
+
+    if (src_node != NULL && src_node->is_inotify_initialized == 0)
+    {
+        _source = source;
+        _source_friendly = source_friendly;
+        nftw(source, backup_walk_inotify_init, 1024, FTW_PHYS);
+        src_node->is_inotify_initialized = 1;
+        _source_friendly = NULL;
+    }
     _source = NULL;
     _target = NULL;
 #ifdef DEBUG
@@ -120,17 +199,30 @@ void recursive_deleter(char* path)
 */
 void create_watcher(char* source, char* target) {}
 
-void new_folder_init(char* source, char* source_friendly, char* path, char* target, int fd) {
-    _fd=fd;
-    _source = source;
-    _target = target;
-    _source_friendly = source_friendly;
-    
+void new_folder_init(node_sc* source_node, char* path) {
+    if (source_node == NULL || path == NULL)
+    {
+        return;
+    }
+
+    _source = source_node->source_full;
+    _source_friendly = source_node->source_friendly;
     nftw(path, backup_walk_inotify_init, 1024, FTW_PHYS);
+
+    pthread_mutex_lock(&source_node->targets.mtx);
+    node_tr* current = source_node->targets.head;
+    
+    while (current != NULL)
+    {
+        _target = current->target_full;
+        nftw(path, backup_walk, 1024, FTW_PHYS);
+        current = current->next;
+    }
+    pthread_mutex_unlock(&source_node->targets.mtx);
+
     _source_friendly = NULL;
     _source = NULL;
     _target = NULL;
-    _fd = 0;
 }
 
 void inotify_reader(int fd, list_wd* wd_list, Ino_List *inotify)
@@ -205,20 +297,23 @@ void inotify_reader(int fd, list_wd* wd_list, Ino_List *inotify)
     INOTIFY EVENT HANDLING
 
 */
-void del_handling(void* event_ptr){
-    Ino_Node* event = (Ino_Node*)event_ptr;
-    if (remove(event->full_path_dest) != 0)
+void del_handling(const char* dest_path){
+    if (dest_path == NULL)
+    {
+        return;
+    }
+    if (remove(dest_path) != 0)
             {
                 if (errno == EACCES)
                 {
-                    printf("No access to the entry %s\n", event->full_path_dest);
+                    printf("No access to the entry %s\n", dest_path);
                     ERR("remove");
                 }
                 else if (errno == ENOTEMPTY)
                 {
                     // recursively delete files and try again
-                    recursive_deleter(event->full_path_dest);
-                    if (remove(event->full_path_dest) != 0)
+                    recursive_deleter((char*)dest_path);
+                    if (remove(dest_path) != 0)
                     {
                         if (errno != ENOENT)
                         {
@@ -233,7 +328,14 @@ void del_handling(void* event_ptr){
 
             }
 }
+void debug_printer(char* type, int wd, char* source_friendly, char* path, char * event_name, int is_dir){
+    #ifdef DEBUG
+            printf("Watch %d in folder %s (%s) saw %s on %s (is_dir: %d)\n", wd,
+                  source_friendly, path ,type, event_name,
+                   is_dir);
+    #endif
 
+}
 void event_handler(list_wd* wd_list, Ino_List *inotify)
 {
     Ino_List inotify_events = *inotify;
@@ -244,114 +346,73 @@ void event_handler(list_wd* wd_list, Ino_List *inotify)
         int is_dir = (event->mask & IN_ISDIR) != 0;
 
         Node_wd* wd_node = find_element_by_wd(wd_list, event->wd);
+        node_sc* source_node = NULL;
+        if (wd_node != NULL)
+        {
+            source_node = find_element_by_source(wd_node->source_friendly);
+        }
+        const char* suffix = (event->suffix != NULL) ? event->suffix : "";
+
+        if (source_node == NULL)
+        {
+            remove_inotify_event(inotify);
+            continue;
+        }
 
         if ((event->mask & IN_CREATE) && is_dir)
         {
-#ifdef DEBUG
-            printf("Watch %d in folder %s (%s) saw IN_CREATE on %s (is_dir: %d)\n", event->wd,
-                   wd_node ? wd_node->source_friendly : "unknown", wd_node ? wd_node->path : "unknown", event->name,
-                   is_dir);
-#endif
-            // tworzymy backup folderu
-            new_folder_init(wd_node->source_full, wd_node->source_friendly, event->full_path, wd_node->full_target_path );
-            
+            debug_printer("IN_CREATE", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
+            new_folder_init(source_node, event->full_path);
         }
         if ((event->mask & IN_CREATE && !is_dir))
         {
-#ifdef DEBUG
-            printf("Watch %d in folder %s (%s) saw IN_CREATE on %s (is_dir: %d)\n", event->wd,
-                   wd_node ? wd_node->source_friendly : "unknown", wd_node ? wd_node->path : "unknown", event->name,
-                   is_dir);
-#endif
-
-            int write_fd = open(event->full_path_dest, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            if (write_fd < 0)
-            {
-                ERR("fd");
-            }
-            if (close(write_fd) < 0)
-            {
-                ERR("close fd");
-            }
-            copy_permissions_and_attributes(event->full_path, event->full_path_dest);
-            // tworzymy nowy pusty plik
-            // jezeli on już jest - wtedy nie robimy nic
+            debug_printer("IN_CREATE", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
+            for_each_target_path(source_node, suffix, create_empty_files, event->full_path);
         }
         if ((event->mask & IN_CLOSE_WRITE) && !is_dir)
         {
-#ifdef DEBUG
-            printf("Watch %d in folder %s (%s) saw IN_CLOSE_WRITE on %s (is_dir: %d)\n", event->wd,
-                   wd_node ? wd_node->source_friendly : "unknown", wd_node ? wd_node->path : "unknown", event->name,
-                   is_dir);
-#endif
-            // kopiujemy plik
-            copy(event->full_path, event->full_path_dest, wd_node->source_full, wd_node->full_target_path);
+            debug_printer("IN_CLOSE_WRITE", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
+            for_each_target_path(source_node, suffix, copy_files, (void*)event->full_path);
         }
 
         if (event->mask & IN_DELETE)
         {
-#ifdef DEBUG
-            printf("Watch %d in folder %s (%s) saw IN_DELETE on %s (is_dir: %d)\n", event->wd,
-                   wd_node ? wd_node->source_friendly : "unknown", wd_node ? wd_node->path : "unknown", event->name,
-                   is_dir);
-#endif
-            
-            del_handling(event);
-            // usun
+            debug_printer("IN_DELETE", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
+            for_each_target_path(source_node, suffix, delete_multi, NULL);
         }
         if (event->mask & IN_MOVED_FROM)
         {
-#ifdef DEBUG
-            printf("Watch %d in folder %s (%s) saw IN_MOVED_FROM on %s (is_dir: %d)\n", event->wd,
-                   wd_node ? wd_node->source_friendly : "unknown", wd_node ? wd_node->path : "unknown", event->name,
-                   is_dir);
-#endif
+            debug_printer("IN_MOVED_FROM", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
+
             // mapa cookiesow
             // dodajemy delikwenta
-            // jezeli nie ma po 8s drugiego eventu, usuwamy
+            // jezeli nie ma po MOV_TIME s drugiego eventu, usuwamy
         }
         if (event->mask & IN_MOVED_TO)
         {
-#ifdef DEBUG
-            printf("Watch %d in folder %s (%s) saw IN_MOVED_TO on %s (is_dir: %d)\n", event->wd,
-                   wd_node ? wd_node->source_friendly : "unknown", wd_node ? wd_node->path : "unknown", event->name,
-                   is_dir);
-#endif
+            debug_printer("IN_MOVED_TO", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
             // jezeli istnieje in_moved_from z cookiesem matchujacym nasz -> przenosimy
-            // jezeli po 8s nie ma, kopiujemy plik
+            // jezeli po MOV_TIME s nie ma, kopiujemy plik
         }
         if (event->mask & IN_ATTRIB)
         {
-#ifdef DEBUG
-            printf("Watch %d in folder %s (%s) saw IN_ATTRIB on %s (is_dir: %d)\n", event->wd,
-                   wd_node ? wd_node->source_friendly : "unknown", wd_node ? wd_node->path : "unknown", event->name,
-                   is_dir);
-#endif
-            // zmieniamy atrybuty
-            copy_permissions_and_attributes(event->full_path, event->full_path_dest);
+            debug_printer("IN_ATTRIB", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
+            for_each_target_path(source_node, suffix, attribs, event->full_path);
         }
 
         if (event->mask & IN_DELETE_SELF)
         {
-#ifdef DEBUG
-            printf("Watch %d in folder %s (%s) saw IN_DELETE_SELF on %s (is_dir: %d)\n", event->wd,
-                   wd_node ? wd_node->source_friendly : "unknown", wd_node ? wd_node->path : "unknown", event->name,
-                   is_dir);
-#endif
-            // usuwamy i usuwamy watch
-            del_handling(event);
+            debug_printer("IN_DELETE_SELF", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
+            for_each_target_path(source_node, suffix, delete_multi, NULL);
         }
         if (event->mask & IN_MOVE_SELF)
         {
-#ifdef DEBUG
-            printf("Watch %d in folder %s (%s) saw IN_MOVE_SELF on %s (is_dir: %d)\n", event->wd,
-                   wd_node ? wd_node->source_friendly : "unknown", wd_node ? wd_node->path : "unknown", event->name,
-                   is_dir);
-#endif
+            debug_printer("IN_MOVE_SELF", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
             // brak specjlnego handlingu move nam to ogarnia
         }
         if (event->mask & IN_IGNORED)
-        {
+        {   
+            debug_printer("IN_IGNORED", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
             delete_wd_node(wd_list, event->wd);
         }
 
