@@ -2,15 +2,14 @@
 #define LIST_MOVE_EVENTS_H
 
 #include "lists_common.h"
+#include  "inotify_functions.h"
+#include "utils.h"
 
-// Function to handle a MOVED_FROM event; returns corresponding move_to if cookie matches, otherwise adds new node
-char* add_move_from_event(M_list* l, int cookie, char* move_from);
-
-// Function to handle a MOVED_TO event; returns corresponding move_from if cookie matches, otherwise adds new node
-char* add_move_to_event(M_list* l, int cookie, char* move_to, int wd_to);
+// Unified move event handler; is_from=1 for MOVED_FROM, 0 for MOVED_TO
+void add_move_event(M_list* l, int cookie, const char* path, int is_from, node_sc* source);
 
 // Function to check and clean up expired move events
-void check_move_events_list(M_list* l);
+void check_move_events_list(M_list* l, node_sc* source);
 
 // Helper function to delete a move node
 void delete_node(M_list* l, M_node * current);

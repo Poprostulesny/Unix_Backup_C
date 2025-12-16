@@ -1,3 +1,4 @@
+// src/inotify_functions.c
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 
@@ -17,6 +18,7 @@
 #include "list_wd.h"
 #include "list_inotify_events.h"
 #include "list_sources.h"
+#include "list_move_events.h"
 #include "utils.h"
 
 #ifndef DEBUG
@@ -39,7 +41,7 @@
 extern int fd;
 
 //template function for all operations for all paths
-static void for_each_target_path(node_sc* source_node, const char* suffix, void (*f)(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx), void* ctx)
+void for_each_target_path(node_sc* source_node, const char* suffix, void (*f)(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx), void* ctx)
 {
     if (source_node == NULL || f == NULL)
     {
@@ -58,14 +60,14 @@ static void for_each_target_path(node_sc* source_node, const char* suffix, void 
             current = current->next;
             continue;
         }
-        cb(dest_path, current, source_node, ctx);
+        f(dest_path, current, source_node, ctx);
         free(dest_path);
         current = current->next;
     }
     pthread_mutex_unlock(&source_node->targets.mtx);
 }
 
-static void create_empty_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+void create_empty_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
 {
     //mowimy kompilatorowi ze nie uzywamy
     (void)target;
@@ -86,7 +88,7 @@ static void create_empty_files(const char* dest_path, node_tr* target, node_sc* 
     }
 }
 
-static void copy_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+void copy_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
 {
     const char* source_path = (const char*)ctx;
     if (source_path == NULL || source_node == NULL)
@@ -96,7 +98,7 @@ static void copy_files(const char* dest_path, node_tr* target, node_sc* source_n
     copy(source_path, dest_path, source_node->source_full, target->target_full);
 }
 
-static void attribs(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+void attribs(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
 {
     (void)target;
     (void)source_node;
@@ -104,12 +106,57 @@ static void attribs(const char* dest_path, node_tr* target, node_sc* source_node
     copy_permissions_and_attributes(src_path, dest_path);
 }
 
-static void delete_multi(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+void delete_multi(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
 {
     (void)target;
     (void)source_node;
     (void)ctx;
     del_handling(dest_path);
+}
+
+void move_all(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+{
+    if (dest_path == NULL || target == NULL || source_node == NULL || ctx == NULL)
+    {
+        return;
+    }
+
+    const char* src_suffix = (const char*)ctx;
+    char* src_path = concat(2, target->target_full, src_suffix);
+    if (src_path == NULL)
+    {
+        ERR("concat");
+    }
+    char* dest_path_dup = strdup(dest_path);
+    if (dest_path_dup == NULL)
+    {
+        ERR("strdup");
+    }
+    make_path(dest_path_dup);
+    free(dest_path_dup);
+
+    if (rename(src_path, dest_path) == 0)
+    {
+        free(src_path);
+        return;
+    }
+
+    if (errno == EXDEV)
+    {
+        copy(src_path, dest_path, source_node->source_full, target->target_full);
+        del_handling(src_path);
+        free(src_path);
+        return;
+    }
+
+    if (errno == ENOENT)
+    {
+        free(src_path);
+        return;
+    }
+
+    free(src_path);
+    ERR("rename");
 }
 
 int backup_walk_inotify_init(const char* path, const struct stat* s, int flag, struct FTW* ftw)
@@ -336,9 +383,10 @@ void debug_printer(char* type, int wd, char* source_friendly, char* path, char *
     #endif
 
 }
-void event_handler(list_wd* wd_list, Ino_List *inotify)
+void event_handler(node_sc *source_node)
 {
-    Ino_List inotify_events = *inotify;
+    Ino_List inotify_events = source_node->events;
+    list_wd *wd_list = &source_node->watchers;
     while (inotify_events.size > 0)
     {
         Ino_Node* event = inotify_events.head;
@@ -346,19 +394,8 @@ void event_handler(list_wd* wd_list, Ino_List *inotify)
         int is_dir = (event->mask & IN_ISDIR) != 0;
 
         Node_wd* wd_node = find_element_by_wd(wd_list, event->wd);
-        node_sc* source_node = NULL;
-        if (wd_node != NULL)
-        {
-            source_node = find_element_by_source(wd_node->source_friendly);
-        }
+      
         const char* suffix = (event->suffix != NULL) ? event->suffix : "";
-
-        if (source_node == NULL)
-        {
-            remove_inotify_event(inotify);
-            continue;
-        }
-
         if ((event->mask & IN_CREATE) && is_dir)
         {
             debug_printer("IN_CREATE", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
@@ -383,7 +420,7 @@ void event_handler(list_wd* wd_list, Ino_List *inotify)
         if (event->mask & IN_MOVED_FROM)
         {
             debug_printer("IN_MOVED_FROM", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
-
+            add_move_event(&source_node->mov_dict,event->cookie, event->full_path, 1, source_node);
             // mapa cookiesow
             // dodajemy delikwenta
             // jezeli nie ma po MOV_TIME s drugiego eventu, usuwamy
@@ -391,6 +428,7 @@ void event_handler(list_wd* wd_list, Ino_List *inotify)
         if (event->mask & IN_MOVED_TO)
         {
             debug_printer("IN_MOVED_TO", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
+            add_move_event(&source_node->mov_dict,event->cookie, event->full_path, 0, source_node);
             // jezeli istnieje in_moved_from z cookiesem matchujacym nasz -> przenosimy
             // jezeli po MOV_TIME s nie ma, kopiujemy plik
         }
@@ -416,6 +454,6 @@ void event_handler(list_wd* wd_list, Ino_List *inotify)
             delete_wd_node(wd_list, event->wd);
         }
 
-        remove_inotify_event(inotify);
+        remove_inotify_event(&inotify_events);
     }
 }
