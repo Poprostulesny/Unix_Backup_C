@@ -3,6 +3,7 @@ sop-backup
 .vscode/
 main
 tempCodeRunner*
+Makefile
 a/
 c/
 d/
