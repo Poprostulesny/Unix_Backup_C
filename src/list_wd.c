@@ -14,9 +14,8 @@
 extern list_wd wd_list;
 
 // Functions for wd list
-void delete_wd_node(int wd)
+void delete_wd_node(list_wd* l, int wd)
 {
-    list_wd* l = &wd_list;
     if (l == NULL)
     {
         return;
@@ -46,10 +45,12 @@ void delete_wd_node(int wd)
                 l->tail = current->prev;
             }
 
-            free(current->source_friendly);
-            free(current->source_full);
-            free(current->path);
-            free(current);
+                free(current->source_friendly);
+                free(current->source_full);
+                free(current->path);
+                free(current->path_new);
+                free(current->full_target_path);
+                free(current);
             l->size--;
             pthread_mutex_unlock(&l->mtx);
             return;
@@ -59,9 +60,8 @@ void delete_wd_node(int wd)
     pthread_mutex_unlock(&l->mtx);
 }
 
-void add_wd_node(int wd, char* source_friendly, char* source_full, char* path_new, const char* path)
+void add_wd_node(list_wd* l, int wd, char* source_friendly, char* source_full, char* path_new, const char* path, const char* full_target_path)
 {
-    list_wd* l = &wd_list;
     if (l == NULL)
     {
         return;
@@ -77,9 +77,17 @@ void add_wd_node(int wd, char* source_friendly, char* source_full, char* path_ne
     new_node->source_friendly = strdup(source_friendly);
     new_node->source_full = strdup(source_full);
     new_node->path = strdup(path);
-    new_node->path_new= strdup(path_new);
+    new_node->path_new = strdup(path_new);
+    new_node->full_target_path = strdup(full_target_path);
     new_node->next = NULL;
-    if(  new_node->source_friendly==NULL|| new_node->source_full==NULL||new_node->path==NULL||new_node->path_new==NULL){
+    if (new_node->source_friendly == NULL || new_node->source_full == NULL || new_node->path == NULL || new_node->path_new == NULL || new_node->full_target_path == NULL)
+    {
+        free(new_node->source_friendly);
+        free(new_node->source_full);
+        free(new_node->path);
+        free(new_node->path_new);
+        free(new_node->full_target_path);
+        free(new_node);
         ERR("strdup");
     }
     pthread_mutex_lock(&l->mtx);
@@ -99,9 +107,8 @@ void add_wd_node(int wd, char* source_friendly, char* source_full, char* path_ne
     pthread_mutex_unlock(&l->mtx);
 }
 
-Node_wd* find_element_by_wd(int wd)
+Node_wd* find_element_by_wd(list_wd* l, int wd)
 {
-    list_wd* l = &wd_list;
     if (l == NULL)
     {
         return NULL;
@@ -123,8 +130,7 @@ Node_wd* find_element_by_wd(int wd)
 }
 
 
-void delete_all_wd_by_path(char * source_friendly){
-    list_wd* l = &wd_list;
+void delete_all_wd_by_path(list_wd* l, char * source_friendly){
     if (l == NULL)
     {
         return;
@@ -155,6 +161,7 @@ void delete_all_wd_by_path(char * source_friendly){
             free(current->source_full);
             free(current->path);
             free(current->path_new);
+            free(current->full_target_path);
             free(current);
             l->size--;
 

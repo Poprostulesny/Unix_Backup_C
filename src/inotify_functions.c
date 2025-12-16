@@ -12,8 +12,13 @@
 #include <string.h>
 #include "inotify_functions.h"
 #include "generic_file_functions.h"
-#include "file_utils.h"
-#include "lists.h"
+#include "lists_common.h"
+#include "list_wd.h"
+#include "list_inotify_events.h"
+
+#ifndef DEBUG
+#define DEBUG
+#endif
 
 #ifndef ERR
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
@@ -28,6 +33,8 @@
                       IN_MOVE_SELF | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB)
 #endif
 
+
+
 int backup_walk_inotify_init(const char* path, const struct stat* s, int flag, struct FTW* ftw)
 {
     char* path_new = get_path_to_target(_source, _target, path);
@@ -38,12 +45,12 @@ int backup_walk_inotify_init(const char* path, const struct stat* s, int flag, s
     if (flag == FTW_D)
     {
         checked_mkdir(path_new);
-        int wd = inotify_add_watch(fd, path, INOTIFY_MASK);
+        int wd = inotify_add_watch(_fd, path, INOTIFY_MASK);
         if (wd == -1)
         {
             ERR("inotify_add_watch");
         }
-        add_wd_node(wd, _source_friendly, _source, path_new, path);
+        add_wd_node(&wd_list, wd, _source_friendly, _source, path_new, path, path_new);
     }
     else if (flag == FTW_F)
     {
@@ -64,20 +71,18 @@ void initial_backup(char* source, char* source_friendly, char* target)
     printf("Doing an initial backup of %s to %s...\n", source, target);
 #endif
 
-    _source = strdup(source);
-
-    _source_friendly = strdup(source_friendly);
-
-    _target = strdup(target);
+    _source = source;
+    _source_friendly = source_friendly;
+    _target = target;
 
     if (_source == NULL || _source_friendly == NULL || _target == NULL)
     {
         ERR("strdup");
     }
     nftw(source, backup_walk_inotify_init, 1024, FTW_PHYS);
-    free(_source);
-    free(_source_friendly);
-    free(_target);
+    _source_friendly = NULL;
+    _source = NULL;
+    _target = NULL;
 #ifdef DEBUG
     printf("Finished\n");
 #endif
@@ -115,10 +120,22 @@ void recursive_deleter(char* path)
 */
 void create_watcher(char* source, char* target) {}
 
-void new_folder_init(char* source, char* source_friendly, char* path) {}
+void new_folder_init(char* source, char* source_friendly, char* path, char* target, int fd) {
+    _fd=fd;
+    _source = source;
+    _target = target;
+    _source_friendly = source_friendly;
+    
+    nftw(path, backup_walk_inotify_init, 1024, FTW_PHYS);
+    _source_friendly = NULL;
+    _source = NULL;
+    _target = NULL;
+    _fd = 0;
+}
 
-void inotify_reader(void)
+void inotify_reader(int fd, list_wd* wd_list, Ino_List *inotify)
 {
+    
     char buffer[BUF_SIZE];
     ssize_t bytes_read = 0;
 
@@ -170,7 +187,7 @@ void inotify_reader(void)
 #ifdef DEBUG
                 printf("File: %.*s\n", event->len, event->name);
 #endif
-                add_inotify_event(event);
+                add_inotify_event(wd_list, inotify, event);
                 // Calculating the padding (by posix standard each entry aligned to 4 bytes)
                 size_t padding = (4 - (event_size % 4)) % 4;
                 offset += event_size + padding;
@@ -217,15 +234,16 @@ void del_handling(void* event_ptr){
             }
 }
 
-void event_handler(void)
+void event_handler(list_wd* wd_list, Ino_List *inotify)
 {
+    Ino_List inotify_events = *inotify;
     while (inotify_events.size > 0)
     {
         Ino_Node* event = inotify_events.head;
 
         int is_dir = (event->mask & IN_ISDIR) != 0;
 
-        Node_wd* wd_node = find_element_by_wd(event->wd);
+        Node_wd* wd_node = find_element_by_wd(wd_list, event->wd);
 
         if ((event->mask & IN_CREATE) && is_dir)
         {
@@ -235,6 +253,7 @@ void event_handler(void)
                    is_dir);
 #endif
             // tworzymy backup folderu
+            new_folder_init(wd_node->source_full, wd_node->source_friendly, event->full_path, wd_node->full_target_path );
             
         }
         if ((event->mask & IN_CREATE && !is_dir))
@@ -246,7 +265,7 @@ void event_handler(void)
 #endif
 
             int write_fd = open(event->full_path_dest, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            if (fd < 0)
+            if (write_fd < 0)
             {
                 ERR("fd");
             }
@@ -254,6 +273,7 @@ void event_handler(void)
             {
                 ERR("close fd");
             }
+            copy_permissions_and_attributes(event->full_path, event->full_path_dest);
             // tworzymy nowy pusty plik
             // jezeli on już jest - wtedy nie robimy nic
         }
@@ -265,7 +285,7 @@ void event_handler(void)
                    is_dir);
 #endif
             // kopiujemy plik
-            copy_file(event->full_path, event->full_path_dest);
+            copy(event->full_path, event->full_path_dest, wd_node->source_full, wd_node->full_target_path);
         }
 
         if (event->mask & IN_DELETE)
@@ -328,13 +348,13 @@ void event_handler(void)
                    wd_node ? wd_node->source_friendly : "unknown", wd_node ? wd_node->path : "unknown", event->name,
                    is_dir);
 #endif
-            // jezeli nie ma move to, to wywalamy na pysk
+            // brak specjlnego handlingu move nam to ogarnia
         }
         if (event->mask & IN_IGNORED)
         {
-            delete_wd_node(event->wd);
+            delete_wd_node(wd_list, event->wd);
         }
 
-        remove_inotify_event();
+        remove_inotify_event(inotify);
     }
 }

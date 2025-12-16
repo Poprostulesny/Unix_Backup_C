@@ -1,8 +1,14 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
 #include "utils.h"
-
+#ifndef ERR
+#define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
+#endif
 int min(int a, int b) { return a < b ? a : b; }
 
 // returns 1 if target is in source, 0 otherwise
@@ -24,25 +30,47 @@ int is_target_in_source(char* source, char* target)
 
 char* concat(int n, ...)
 {
-    int total_lenght = 0;
+    size_t total = 0;
     va_list args;
+
     va_start(args, n);
-    for (int i = 0; i < n; i++)
-    {
-        total_lenght += strlen(va_arg(args, char*));
+    for (int i = 0; i < n; i++) {
+        const char* s = va_arg(args, const char*);
+        if (s) total += strlen(s);
     }
     va_end(args);
 
-    char* re = malloc(total_lenght + 1);
-    if (!re)
-        perror("malloc"), exit(EXIT_FAILURE);
-    re[0] = 0;
+    char* out = malloc(total + 1);
+    if (!out) { perror("malloc"); exit(EXIT_FAILURE); }
 
+    char* p = out;
     va_start(args, n);
-    for (int i = 0; i < n; i++)
-    {
-        strcat(re, va_arg(args, char*));
+    for (int i = 0; i < n; i++) {
+        const char* s = va_arg(args, const char*);
+        if (!s) continue;
+        size_t len = strlen(s);
+        memcpy(p, s, len);
+        p += len;
     }
     va_end(args);
-    return re;
+
+    *p = '\0';
+    return out;
+}
+
+
+char * get_end_suffix(char* base, char*full){
+    int i=0;
+    while(base[i]==full[i]&&i<min(strlen(base), strlen(full))){
+        i++;
+    }
+    
+     char * result = strdup((full+i));
+     if(strlen(base)==strlen(full)){
+        return NULL;
+     }
+    if(result==NULL){
+        ERR("strdup");
+    }
+    return result;
 }

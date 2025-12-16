@@ -10,10 +10,12 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include<pthread.h>
 #include <string.h>
+#include "lists_common.h"
 #include "generic_file_functions.h"
 #include "utils.h"
-#include "file_utils.h"
+
 
 #ifndef ERR
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
@@ -120,6 +122,24 @@ void copy_permissions_and_attributes(const char* source, const char* dest)
     {
         ERR("utimensat");
     }
+}
+
+void copy_permissions_and_attributes_all_targets(const char* source_path, const char* suffix, list_tg* l) {
+    pthread_mutex_lock(&l->mtx);
+    node_tr *current = l->head;
+
+    while(current!=NULL){
+        char * desination_path = concat(2, current->target_full, suffix);
+        copy_permissions_and_attributes(source_path, desination_path);
+        current=current->next;
+        free(desination_path);
+    }
+
+    pthread_mutex_unlock(&l->mtx);
+
+
+
+
 }
 
 /*-----------------------------------------------------*/
@@ -244,6 +264,45 @@ void copy_link(const char* path_where, const char* path_dest)
             ERR("symlink");
         }
     }
+}
+
+void copy(const char* source, const char* dest, const char* backup_source, const char* backup_target) {
+    struct stat st; 
+
+    if(lstat(source, &st)==-1){
+        if(errno!=ENOENT){
+            ERR("lstat");
+
+        }
+        else{
+            return;
+        }
+    }   
+    
+    if(st.st_mode==S_IFLNK){
+        _source = backup_source;
+        _target = backup_target;
+        copy_link(source, dest );
+        _target= NULL;
+        _source=NULL;
+    }
+    else if(st.st_mode==S_IFREG){
+        copy_file(source, dest);
+    }
+   
+}
+void copy_to_all_targets(const char * source_path, const char * file_suffix, list_tg *l ){
+    pthread_mutex_lock(&l->mtx);
+    node_tr *current = l->head;
+
+    while(current!=NULL){
+        char * desination_path = concat(2, current->target_full, file_suffix);
+        copy_file(source_path, desination_path);
+        current=current->next;
+        free(desination_path);
+    }
+
+    pthread_mutex_unlock(&l->mtx);
 }
 
 int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ftw)

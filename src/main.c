@@ -14,13 +14,32 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include "file_utils.h"
-#include "lists.h"
+
+#include "utils.h"
+#include "generic_file_functions.h"
+#include "inotify_functions.h"
+
+
+#include "lists_common.h"
+#include "list_targets.h"
+#include "list_sources.h"
+#include "list_wd.h"
+#include "list_init_backup.h"
+#include "list_inotify_events.h"
+#include "list_move_events.h"
 
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #define DEBUG
 
 __sig_atomic_t finish_work_flag = 0;
+
+/* GLOBAL VARIABLES */
+char* _source;
+char* _source_friendly;
+char* _target;
+int fd;
+/*-------------------*/
+
 /*
 
 

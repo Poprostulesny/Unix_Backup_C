@@ -5,16 +5,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include<sys/stat.h>
 #include <time.h>
+#include "generic_file_functions.h"
 #include "list_move_events.h"
-
+#include "lists_common.h"
 #ifndef ERR
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #endif
 
 extern M_list move_events;
 
-void delete_node(M_node * current, M_list * l){
+void delete_node(M_list* l, M_node * current){
     if (current->prev != NULL)
             {
                 current->prev->next = current->next;
@@ -41,10 +43,9 @@ void delete_node(M_node * current, M_list * l){
 
 }
 
-char* add_move_from_event(int cookie, char* move_from, char* full_dest_path)
+char* add_move_from_event(M_list* l, int cookie, char* move_from)
 {
-    M_list* l = &move_events;
-    if (l == NULL || move_from == NULL || full_dest_path == NULL)
+    if (l == NULL || move_from == NULL)
     {
         return NULL;
     }
@@ -69,7 +70,7 @@ char* add_move_from_event(int cookie, char* move_from, char* full_dest_path)
             result = strdup(current->move_to);
             
             // Delete matched node
-           delete_node(current,l);
+           delete_node(l, current);
             
             
         }
@@ -81,7 +82,7 @@ char* add_move_from_event(int cookie, char* move_from, char* full_dest_path)
             #endif
             
             // Delete expired node
-           delete_node(current, l);
+           delete_node(l, current);
         }
 
         current = next;
@@ -98,18 +99,18 @@ char* add_move_from_event(int cookie, char* move_from, char* full_dest_path)
         pthread_mutex_unlock(&l->mtx);
         return NULL;
     }
-
+    // new_node->wd_from = wd_from;
     new_node->cookie = cookie;
     new_node->move_from = strdup(move_from);
     new_node->move_to = NULL;
-    new_node->full_dest_path = strdup(full_dest_path);
+    // new_node->full_dest_path = strdup(full_dest_path);
     new_node->token = current_time;
     new_node->next = NULL;
 
     if (new_node->move_from == NULL || new_node->full_dest_path == NULL)
     {
         free(new_node->move_from);
-        free(new_node->full_dest_path);
+        // free(new_node->full_dest_path);
         free(new_node);
         ERR("strdup");
     }
@@ -135,9 +136,8 @@ char* add_move_from_event(int cookie, char* move_from, char* full_dest_path)
     return NULL;
 }
 
-char* add_move_to_event(int cookie, char* move_to, char* full_dest_path)
+char* add_move_to_event(M_list* l, int cookie, char* move_to, char* full_dest_path, int wd_to)
 {
-    M_list* l = &move_events;
     if (l == NULL || move_to == NULL || full_dest_path == NULL)
     {
         return NULL;
@@ -158,7 +158,7 @@ char* add_move_to_event(int cookie, char* move_to, char* full_dest_path)
         {
             result = strdup(current->move_from);
             
-            delete_node(current, l);
+            delete_node(l, current);
         }
         else if (difftime(current_time, current->token) > 10.0)
         {
@@ -168,7 +168,7 @@ char* add_move_to_event(int cookie, char* move_to, char* full_dest_path)
             #endif
             
            
-            delete_node(current, l);
+            delete_node(l, current);
         }
 
         current = next;
@@ -186,7 +186,6 @@ char* add_move_to_event(int cookie, char* move_to, char* full_dest_path)
         pthread_mutex_unlock(&l->mtx);
         return NULL;
     }
-
     new_node->cookie = cookie;
     new_node->move_from = NULL;
     new_node->move_to = strdup(move_to);
@@ -224,9 +223,8 @@ char* add_move_to_event(int cookie, char* move_to, char* full_dest_path)
     return NULL;
 }
 
-void check_move_events_list()
+void check_move_events_list(M_list* l)
 {
-    M_list* l = &move_events;
     if (l == NULL)
     {
         return;
@@ -248,14 +246,21 @@ void check_move_events_list()
                 //just copy the file to the new destination
                 //if it is a directory use the goofy ass version
                 //if it is a symlink then goofy^2 method
+                // copy(current->move_to, )
+                copy_to_all_targets(current->move_to, current->suffix, l);
             }
             if(current->move_to==NULL){
                 //delete the file
                 //if it is a direcotry once again goofy ass delete
+                struct stat st;
+                lstat(current->move_to, &st);
+                if(st.st_mode==S_IFDIR){
+                    
+                }
             }
             
             // Delete expired node
-            delete_node(current, l);
+            delete_node(l, current);
         }
 
         current = next;

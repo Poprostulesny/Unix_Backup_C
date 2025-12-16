@@ -56,7 +56,7 @@ void list_source_add(node_sc* new_node)
     pthread_mutex_lock(&l->mtx);
     new_node->next = l->head;
     new_node->previous = NULL;
-
+    new_node->is_inotify_initialized=0;
     if (l->head != NULL)
     {
         l->head->previous = new_node;

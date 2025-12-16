@@ -32,6 +32,7 @@ typedef struct Node_source
 {   
     char* source_full;
     char* source_friendly;
+    int is_inotify_initialized;
     struct List_target targets;
     struct Node_source* next;
     struct Node_source* previous;
@@ -55,6 +56,8 @@ typedef struct Node_wd
     char* source_full;
     char* path_new;
     char* path;
+    char* full_target_path;
+    char * suffix;
 } Node_wd;
 
 typedef struct List_wd
@@ -94,6 +97,7 @@ typedef struct Inotify_event_node
     uint32_t len;
     char* name;
     char * full_path;
+    char * suffix;
     char* full_path_dest;
 } Ino_Node;
 
@@ -112,6 +116,9 @@ typedef struct Move_Node
     char * move_from;
     char * move_to;
     char * full_dest_path;
+    int wd_from;
+    int source_to;
+    char * suffix;
     struct Move_Node * next;
     struct Move_Node * prev;
     time_t token;
@@ -124,5 +131,15 @@ typedef struct Move_List
     struct Move_Node* tail;
     int size;
 } M_list;
+
+/* Global lists (defined in lists.c) */
+extern list_bck init_backup_tasks;
+extern list_sc backups;
+extern list_wd wd_list;
+extern Ino_List inotify_events;
+extern M_list move_events;
+
+// Initialize all global lists mutexes and reset their state
+void init_lists(void);
 
 #endif /* LISTS_COMMON_H */

@@ -15,15 +15,14 @@
 
 extern Ino_List inotify_events;
 
-void add_inotify_event(struct inotify_event *event)
+void add_inotify_event(list_wd* wd_list, Ino_List* l, struct inotify_event *event)
 {
-    Ino_List *l = &inotify_events;
     if (l == NULL || event == NULL)
     {
         return;
     }
 
-    Node_wd *wd_node = find_element_by_wd(event->wd);
+    Node_wd *wd_node = find_element_by_wd(wd_list, event->wd);
 
     Ino_Node *new_node = malloc(sizeof(Ino_Node));
     if (new_node == NULL)
@@ -101,9 +100,8 @@ void add_inotify_event(struct inotify_event *event)
     pthread_mutex_unlock(&l->mtx);
 }
 
-void remove_inotify_event()
+void remove_inotify_event(Ino_List* l)
 {
-    Ino_List *l = &inotify_events;
     if (l == NULL || l->head == NULL)
     {
         return;

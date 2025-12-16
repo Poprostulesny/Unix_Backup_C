@@ -11,5 +11,9 @@
 11. add file deleter - ok
 12. w copy file ustawienie czasow modyfikacji i tworzenia na ten sam - ok
 13. move to/from logika
-14.  tworzenie backupu folderu
-15. make copy_file work on both files and symlinks
+14.  tworzenie backupu folderu - ok
+15. make copy_file work on both files and symlinks - ok
+16. dodanie wd do listy move
+17. ogarniecie endowania 
+18. restore
+19. dodanie obsługi wielu backupow na raz - zmiana file_dest na sufixy
