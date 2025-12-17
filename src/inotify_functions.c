@@ -19,7 +19,6 @@
 #include "list_inotify_events.h"
 #include "list_sources.h"
 #include "list_move_events.h"
-#include "generic_file_functions.h"
 #include "utils.h"
 
 #ifndef DEBUG
@@ -40,125 +39,6 @@
 #endif
 
 
-
-//template function for all operations for all paths
-void for_each_target_path(node_sc* source_node, const char* suffix, void (*f)(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx), void* ctx)
-{
-    if (source_node == NULL || f == NULL)
-    {
-        return;
-    }
-
-    const char* safe_suffix = (suffix != NULL) ? suffix : "";
-
-    pthread_mutex_lock(&source_node->targets.mtx);
-    node_tr* current = source_node->targets.head;
-    while (current != NULL)
-    {
-        char* dest_path = concat(2, current->target_full, safe_suffix);
-        if (dest_path == NULL)
-        {
-            current = current->next;
-            continue;
-        }
-        f(dest_path, current, source_node, ctx);
-        free(dest_path);
-        current = current->next;
-    }
-    pthread_mutex_unlock(&source_node->targets.mtx);
-}
-
-void create_empty_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
-{
-    //mowimy kompilatorowi ze nie uzywamy
-    (void)target;
-    (void)source_node;
-    const char* src_path = (const char*)ctx;
-    int write_fd = open(dest_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (write_fd < 0)
-    {
-        ERR("fd");
-    }
-    if (close(write_fd) < 0)
-    {
-        ERR("close fd");
-    }
-    if (src_path != NULL)
-    {
-        copy_permissions_and_attributes(src_path, dest_path);
-    }
-}
-
-void copy_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
-{
-    const char* source_path = (const char*)ctx;
-    if (source_path == NULL || source_node == NULL)
-    {
-        return;
-    }
-    copy(source_path, dest_path, source_node->source_full, target->target_full);
-}
-
-void attribs(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
-{
-    (void)target;
-    (void)source_node;
-    const char* src_path = (const char*)ctx;
-    copy_permissions_and_attributes(src_path, dest_path);
-}
-
-void delete_multi(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
-{
-    (void)target;
-    (void)source_node;
-    (void)ctx;
-    del_handling(dest_path);
-}
-
-void move_all(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
-{
-    if (dest_path == NULL || target == NULL || source_node == NULL || ctx == NULL)
-    {
-        return;
-    }
-
-    const char* src_suffix = (const char*)ctx;
-    char* src_path = concat(2, target->target_full, src_suffix);
-    if (src_path == NULL)
-    {
-        ERR("concat");
-    }
-    char* dest_path_dup = strdup(dest_path);
-    if (dest_path_dup == NULL)
-    {
-        ERR("strdup");
-    }
-    make_path(dest_path_dup);
-    free(dest_path_dup);
-
-    if (rename(src_path, dest_path) == 0)
-    {
-        free(src_path);
-        return;
-    }
-
-    if (errno == EXDEV)
-    {
-        copy(src_path, dest_path, source_node->source_full, target->target_full);
-        del_handling(src_path);
-        free(src_path);
-        return;
-    }
-
-    if (errno == ENOENT)
-    {
-        free(src_path);
-        return;
-    }
-
-    free(src_path);
-    ERR("rename");
-}
 
 int backup_walk_inotify_init(const char* path, const struct stat* s, int flag, struct FTW* ftw)
 {
@@ -225,36 +105,6 @@ void initial_backup(node_sc* source_node, char* source_friendly, char* target)
 #endif
 }
 
-/*
-
-    DELETION HELPERS
-
-*/
-int deleter(const char* path, const struct stat* s, int flag, struct FTW* ftw)
-{
-    if (remove(path) == -1)
-    {
-        if (errno != ENOENT)
-        {
-            ERR("remove");
-        }
-    }
-    return 0;
-}
-
-void recursive_deleter(char* path)
-{
-    if (nftw(path, deleter, 1024, FTW_DEPTH | FTW_PHYS) == -1)
-    {
-        ERR("nftw");
-    }
-}
-
-/*
-
-    INOTIFY HELPERS
-
-*/
 void new_folder_init(node_sc* source_node, char* path) {
     if (source_node == NULL || path == NULL)
     {
@@ -391,37 +241,6 @@ void inotify_reader(int fd, list_wd* wd_list, Ino_List *inotify)
     INOTIFY EVENT HANDLING
 
 */
-void del_handling(const char* dest_path){
-    if (dest_path == NULL)
-    {
-        return;
-    }
-    if (remove(dest_path) != 0)
-            {
-                if (errno == EACCES)
-                {
-                    printf("No access to the entry %s\n", dest_path);
-                    ERR("remove");
-                }
-                else if (errno == ENOTEMPTY)
-                {
-                    // recursively delete files and try again
-                    recursive_deleter((char*)dest_path);
-                    if (remove(dest_path) != 0)
-                    {
-                        if (errno != ENOENT)
-                        {
-                            ERR("remove");
-                        }
-                    }
-                }
-                else if (errno != ENOENT)
-                {
-                    ERR("remove");
-                }
-
-            }
-}
 void debug_printer(char* type, int wd, char* source_friendly, char* path, char * event_name, int is_dir){
     #ifdef DEBUG
             printf("Watch %d in folder %s (%s) saw %s on %s (is_dir: %d)\n", wd,

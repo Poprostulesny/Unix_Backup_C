@@ -7,16 +7,6 @@
 #include <pthread.h>
 #include "list_targets.h"
 
-#ifndef ERR
-#define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
-#endif
-
-#ifdef DEBUG
-#define DEBUG_PRINT(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
-#else
-#define DEBUG_PRINT(fmt, ...)
-#endif
-
 // Helper function to delete a single target node
 void delete_target_node(node_tr* node)
 {

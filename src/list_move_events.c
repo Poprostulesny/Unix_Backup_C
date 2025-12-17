@@ -83,7 +83,7 @@ static void handle_expired_node(M_list* l, M_node* current, node_sc* source)
         }
         if (!S_ISDIR(st.st_mode))
         {
-            copy_to_all_targets(current->move_to, suf_to, &source->targets, source->source_full);
+            for_each_target_path(source, suf_to, copy_files, current->move_to);
         }
         else
         {

@@ -344,50 +344,183 @@ void copy(const char* source, const char* dest, char* backup_source, char* backu
     backup_ctx_unlock();
 }
 
-void copy_to_all_targets(const char* source_path, const char* file_suffix, list_tg* l, char* source_full)
+/*
+
+    INOTIFY-SHARED HELPERS
+
+*/
+// template function for all operations for all paths
+void for_each_target_path(node_sc* source_node, const char* suffix, void (*f)(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx), void* ctx)
 {
-    if (source_path == NULL || file_suffix == NULL || l == NULL || source_full == NULL)
+    if (source_node == NULL || f == NULL)
     {
         return;
     }
 
-    struct stat st;
-    if (lstat(source_path, &st) == -1)
-    {
-        if (errno == ENOENT)
-        {
-            return;
-        }
-        ERR("lstat");
-    }
+    const char* safe_suffix = (suffix != NULL) ? suffix : "";
 
-    pthread_mutex_lock(&l->mtx);
-    node_tr* current = l->head;
-
+    pthread_mutex_lock(&source_node->targets.mtx);
+    node_tr* current = source_node->targets.head;
     while (current != NULL)
     {
-        char* destination_path = concat(2, current->target_full, file_suffix);
-        if (destination_path == NULL)
+        char* dest_path = concat(2, current->target_full, safe_suffix);
+        if (dest_path == NULL)
         {
             current = current->next;
             continue;
         }
-
-        if (S_ISDIR(st.st_mode))
-        {
-            make_path(destination_path);
-            checked_mkdir(destination_path);
-            copy_permissions_and_attributes(source_path, destination_path);
-        }
-        else
-        {
-            copy(source_path, destination_path, source_full, current->target_full);
-        }
-
-        free(destination_path);
+        f(dest_path, current, source_node, ctx);
+        free(dest_path);
         current = current->next;
     }
-    pthread_mutex_unlock(&l->mtx);
+    pthread_mutex_unlock(&source_node->targets.mtx);
+}
+
+void create_empty_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+{
+    (void)target;
+    (void)source_node;
+    const char* src_path = (const char*)ctx;
+    int write_fd = open(dest_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (write_fd < 0)
+    {
+        ERR("fd");
+    }
+    if (close(write_fd) < 0)
+    {
+        ERR("close fd");
+    }
+    if (src_path != NULL)
+    {
+        copy_permissions_and_attributes(src_path, dest_path);
+    }
+}
+
+void copy_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+{
+    const char* source_path = (const char*)ctx;
+    if (source_path == NULL || source_node == NULL)
+    {
+        return;
+    }
+    copy(source_path, dest_path, source_node->source_full, target->target_full);
+}
+
+void attribs(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+{
+    (void)target;
+    (void)source_node;
+    const char* src_path = (const char*)ctx;
+    copy_permissions_and_attributes(src_path, dest_path);
+}
+
+// helper for recursive_deleter
+int deleter(const char* path, const struct stat* s, int flag, struct FTW* ftw)
+{
+    (void)s;
+    (void)flag;
+    (void)ftw;
+    if (remove(path) == -1)
+    {
+        if (errno != ENOENT)
+        {
+            ERR("remove");
+        }
+    }
+    return 0;
+}
+
+void recursive_deleter(char* path)
+{
+    if (nftw(path, deleter, 1024, FTW_DEPTH | FTW_PHYS) == -1)
+    {
+        ERR("nftw");
+    }
+}
+
+void del_handling(const char* dest_path)
+{
+    if (dest_path == NULL)
+    {
+        return;
+    }
+    if (remove(dest_path) != 0)
+    {
+        if (errno == EACCES)
+        {
+            printf("No access to the entry %s\n", dest_path);
+            ERR("remove");
+        }
+        else if (errno == ENOTEMPTY)
+        {
+            // recursively delete files and try again
+            recursive_deleter((char*)dest_path);
+            if (remove(dest_path) != 0)
+            {
+                if (errno != ENOENT)
+                {
+                    ERR("remove");
+                }
+            }
+        }
+        else if (errno != ENOENT)
+        {
+            ERR("remove");
+        }
+    }
+}
+
+void delete_multi(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+{
+    (void)target;
+    (void)source_node;
+    (void)ctx;
+    del_handling(dest_path);
+}
+
+void move_all(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
+{
+    if (dest_path == NULL || target == NULL || source_node == NULL || ctx == NULL)
+    {
+        return;
+    }
+
+    const char* src_suffix = (const char*)ctx;
+    char* src_path = concat(2, target->target_full, src_suffix);
+    if (src_path == NULL)
+    {
+        ERR("concat");
+    }
+    char* dest_path_dup = strdup(dest_path);
+    if (dest_path_dup == NULL)
+    {
+        ERR("strdup");
+    }
+    make_path(dest_path_dup);
+    free(dest_path_dup);
+
+    if (rename(src_path, dest_path) == 0)
+    {
+        free(src_path);
+        return;
+    }
+
+    if (errno == EXDEV)
+    {
+        copy(src_path, dest_path, source_node->source_full, target->target_full);
+        del_handling(src_path);
+        free(src_path);
+        return;
+    }
+
+    if (errno == ENOENT)
+    {
+        free(src_path);
+        return;
+    }
+
+    free(src_path);
+    ERR("rename");
 }
 
 int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ftw)
@@ -405,7 +538,7 @@ int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ft
     else if (flag == FTW_F)
     {
         char* suf = get_end_suffix(_source, path);
-        copy_to_all_targets(path, suf, &_source_node->targets, _source_node->source_full);
+        for_each_target_path(_source_node, suf, copy_files, (void*)path);
         free(suf);
     }
     else if (flag == FTW_SL)

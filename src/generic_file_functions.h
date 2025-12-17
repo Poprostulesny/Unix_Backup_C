@@ -36,5 +36,15 @@ void copy_file(const char* path1, const char* path2);
 void copy_link(const char* path_where, const char* path_dest);
 void copy(const char* source, const char * dest,  char *  backup_source, char * backup_target);
 int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ftw);
-void copy_to_all_targets(const char * source_path, const char * file_suffix, list_tg *l, char * source_full );
+// helper for recursive_deleter
+int deleter(const char* path, const struct stat* s, int flag, struct FTW* ftw);
+// recursively deletes all files in a given directory
+void recursive_deleter(char* path);
+void del_handling(const char* dest_path);
+void for_each_target_path(node_sc* source_node, const char* suffix, void (*f)(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx), void* ctx);
+void create_empty_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx);
+void copy_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx);
+void attribs(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx);
+void delete_multi(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx);
+void move_all(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx);
 #endif /* GENERIC_FILE_FUNCTIONS_H */

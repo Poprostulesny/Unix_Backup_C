@@ -11,7 +11,6 @@
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #endif
 
-extern list_bck init_backup_tasks;
 
 // Functions for init backup tasks
 void init_backup_add_job(char* source, char* source_friendly, char* target)
