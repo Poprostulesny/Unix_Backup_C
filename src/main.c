@@ -5,7 +5,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <ftw.h>
-#include <limits.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -25,16 +24,14 @@
 #include "lists_common.h"
 #include "list_targets.h"
 #include "list_sources.h"
-#include "list_wd.h"
 #include "list_init_backup.h"
-#include "list_inotify_events.h"
 #include "list_move_events.h"
 
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #define DEBUG
 
 static pthread_mutex_t finish_flag_mtx = PTHREAD_MUTEX_INITIALIZER;
-static int finish_work_flag = 0;
+volatile __sig_atomic_t finish_work_flag = 0;
 static int restore_flag_pending = 0;
 static pthread_mutex_t restore_flag_mtx = PTHREAD_MUTEX_INITIALIZER;
 static int restore_flag_waiting = 0;
@@ -43,11 +40,12 @@ static int restore_flag_waiting = 0;
 char* _source;
 char* _source_friendly;
 char* _target;
-int fd;
+
 /*-------------------*/
 
 void* backup_handler(void* arg);
-void restore(char* tok);
+static void request_finish(void);
+static void stop_all_backups(void);
 
 /*
 
@@ -57,7 +55,29 @@ void restore(char* tok);
 
 */
 // finding whether a path is a subpath of another path
+void sethandler(void (*f)(int), int sigNo)
+{
+    struct sigaction act;
+    memset(&act, 0, sizeof(struct sigaction));
+    act.sa_handler = f;
+    act.sa_flags = 0;
+    sigemptyset(&act.sa_mask);
 
+    if (-1 == sigaction(sigNo, &act, NULL))
+        ERR("sigaction");
+}
+void sig_handler(int sig)
+{
+    (void)sig;
+    request_finish();
+}
+
+static void request_finish(void)
+{
+    pthread_mutex_lock(&finish_flag_mtx);
+    finish_work_flag = 1;
+    pthread_mutex_unlock(&finish_flag_mtx);
+}
 int validate_target(node_sc* to_add, char* tok)
 {
     // If an element is already a target or a source of another element in the list, dont add it to the targets and
@@ -302,6 +322,45 @@ void delete_backups_list()
     backups.size = 0;
 }
 
+static void stop_all_backups(void)
+{
+    request_finish();
+
+    pthread_mutex_lock(&backups.mtx);
+    node_sc* cur = backups.head;
+    int count = backups.size;
+    node_sc** to_join = NULL;
+    if (count > 0)
+    {
+        to_join = malloc(sizeof(node_sc*) * count);
+        if (to_join == NULL)
+        {
+            pthread_mutex_unlock(&backups.mtx);
+            ERR("malloc");
+        }
+    }
+    int idx = 0;
+    while (cur != NULL)
+    {
+        pthread_mutex_lock(&cur->stop_mtx);
+        cur->stop_thread = 1;
+        pthread_mutex_unlock(&cur->stop_mtx);
+        if (to_join != NULL && idx < count)
+        {
+            to_join[idx++] = cur;
+        }
+        cur = cur->next;
+    }
+    pthread_mutex_unlock(&backups.mtx);
+
+    for (int i = 0; i < idx; i++)
+    {
+        pthread_join(to_join[i]->thread, NULL);
+    }
+    free(to_join);
+    delete_backups_list();
+}
+
 /*
 
 
@@ -461,40 +520,59 @@ void* backup_handler(void* arg)
     return NULL;
 }
 void restore(char * tok){
-     char* source_tok = strtok(NULL, " ");
+
+
+            char* source_tok = strtok(NULL, " ");
             char* target_tok = strtok(NULL, " ");
-            if (source_tok == NULL || target_tok == NULL)
-            {
-                puts("Invalid syntax\n");
-                return;
-            }
+           
 
-            node_sc* source_node = find_element_by_source(source_tok);
-            if (source_node == NULL)
-            {
-                puts("No such source");
-                return;
-            }
-
-            pthread_mutex_lock(&source_node->targets.mtx);
-            node_tr* current = source_node->targets.head;
-            node_tr* target_node = NULL;
-            while (current != NULL)
-            {
-                if (strcmp(current->target_friendly, target_tok) == 0)
+            char * real_source = realpath(source_tok,NULL);
+            if(real_source==NULL){
+                if (errno == ENOENT)
                 {
-                    target_node = current;
-                    break;
+                    make_path(source_tok);
+                    checked_mkdir(source_tok);
+                    real_source = realpath(source_tok,NULL);
+                    if (real_source == NULL)
+                    {
+                        return;
+                    }
                 }
-                current = current->next;
-            }
-            pthread_mutex_unlock(&source_node->targets.mtx);
+                else if (errno == ENOTDIR)
+                {
+                    printf("Source is not a directory!\n");
+                }
+                else
+                {
+                    printf("Invalid input\n");
+                    return;
+                }
 
-            if (target_node == NULL)
-            {
-                puts("No such target for this source");
-                return;
             }
+            char * real_target = realpath(target_tok,NULL);
+            if (real_target == NULL)
+            {
+                if (errno == ENOENT)
+                {
+                    make_path(target_tok);
+                    checked_mkdir(target_tok);
+                    real_target = realpath(target_tok,NULL);
+                    if (real_target == NULL)
+                    {
+                        return;
+                    }
+                }
+                else if (errno == ENOTDIR)
+                {
+                    printf("Target is not a directory!\n");
+                }
+                else
+                {
+                    printf("Invalid input\n");
+                    return;
+                }
+            }
+
 
             pthread_mutex_lock(&restore_flag_mtx);
             restore_flag_waiting = 0;
@@ -516,7 +594,7 @@ void restore(char * tok){
                 sleep(1);
             }
 
-            restore_checkpoint(source_node->source_full, target_node->target_full);
+            restore_checkpoint(real_source, real_target);
 
             pthread_mutex_lock(&restore_flag_mtx);
             restore_flag_pending = 0;
@@ -532,6 +610,8 @@ void restore(char * tok){
                 }
                 sleep(1);
             }
+            free(real_source);
+            free(real_target);
 }
 void input_handler()
 {
@@ -541,6 +621,10 @@ void input_handler()
     int k;
     while ((n = getline(&buff, &z, stdin)) != -1)
     {
+        if (finish_work_flag)
+        {
+            break;
+        }
         if (buff[n - 1] == '\n')
         {
             buff[n - 1] = '\0';
@@ -558,7 +642,7 @@ void input_handler()
         // input in the form add <source path> <target path> with multiple target paths
         if (strcmp(tok, "add") == 0)
         {
-            if ((k = take_input()) == 0)
+            if ((k = take_input()) <= 0)
             {
                 // do smth
                 puts("Invalid syntax\n");
@@ -583,41 +667,7 @@ void input_handler()
         }
         else if (strcmp(tok, "exit") == 0)
         {
-            pthread_mutex_lock(&finish_flag_mtx);
-            finish_work_flag=1;
-            pthread_mutex_unlock(&finish_flag_mtx);
-            pthread_mutex_lock(&backups.mtx);
-            node_sc* cur = backups.head;
-            int count = backups.size;
-            node_sc** to_join = NULL;
-            if (count > 0)
-            {
-                to_join = malloc(sizeof(node_sc*) * count);
-                if (to_join == NULL)
-                {
-                    pthread_mutex_unlock(&backups.mtx);
-                    ERR("malloc");
-                }
-            }
-            int idx = 0;
-            while (cur != NULL)
-            {
-                pthread_mutex_lock(&cur->stop_mtx);
-                cur->stop_thread = 1;
-                pthread_mutex_unlock(&cur->stop_mtx);
-                if (to_join != NULL && idx < count)
-                {
-                    to_join[idx++] = cur;
-                }
-                cur = cur->next;
-            }
-            pthread_mutex_unlock(&backups.mtx);
-            for (int i = 0; i < idx; i++)
-            {
-                pthread_join(to_join[i]->thread, NULL);
-            }
-            free(to_join);
-            delete_backups_list();
+            stop_all_backups();
             free(buff);
             return;
         }
@@ -626,42 +676,12 @@ void input_handler()
             list_sources_and_targets();
         }
     }
+    if (finish_work_flag && buff != NULL)
+    {
+        // fall through to cleanup with the same path as "exit"
+    }
 
-    pthread_mutex_lock(&finish_flag_mtx);
-    finish_work_flag=1;
-    pthread_mutex_unlock(&finish_flag_mtx);
-    pthread_mutex_lock(&backups.mtx);
-    node_sc* cur = backups.head;
-    int count = backups.size;
-    node_sc** to_join = NULL;
-    if (count > 0)
-    {
-        to_join = malloc(sizeof(node_sc*) * count);
-        if (to_join == NULL)
-        {
-            pthread_mutex_unlock(&backups.mtx);
-            ERR("malloc");
-        }
-    }
-    int idx = 0;
-    while (cur != NULL)
-    {
-        pthread_mutex_lock(&cur->stop_mtx);
-        cur->stop_thread = 1;
-        pthread_mutex_unlock(&cur->stop_mtx);
-        if (to_join != NULL && idx < count)
-        {
-            to_join[idx++] = cur;
-        }
-        cur = cur->next;
-    }
-    pthread_mutex_unlock(&backups.mtx);
-    for (int i = 0; i < idx; i++)
-    {
-        pthread_join(to_join[i]->thread, NULL);
-    }
-    free(to_join);
-    delete_backups_list();
+    stop_all_backups();
     free(buff);
     
 }
@@ -670,14 +690,9 @@ void input_handler()
 int main()
 {
     init_lists();
-    
-    if ((fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC)) == -1)
-    {
-        ERR("inotify_init1");
-    }
-    input_handler();
+    sethandler(sig_handler, SIGTERM);
+    sethandler(sig_handler, SIGINT);
 
-    
-    close(fd);
+    input_handler();
     return 0;
 }

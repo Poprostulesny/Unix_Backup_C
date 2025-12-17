@@ -279,7 +279,15 @@ void copy_link(const char* path_where, const char* path_dest)
 #ifdef DEBUG
     printf("Copying symlink %s to %s\n", path_where, path_dest);
 #endif
-
+    struct stat st;
+    if (lstat(path_where, &st) == -1)
+    {
+        ERR("lstat");
+    }
+    if (unlink(path_dest) == -1 && errno != ENOENT)
+    {
+        ERR("unlink");
+    }
     char buff[1024];
     ssize_t l = readlink(path_where, buff, sizeof(buff) - 1);
     if (l < 0)
@@ -302,6 +310,13 @@ void copy_link(const char* path_where, const char* path_dest)
         {
             ERR("symlink");
         }
+    }
+    struct timespec t[2];
+    t[0] = st.st_atim;
+    t[1] = st.st_mtim;
+    if (utimensat(AT_FDCWD, path_dest, t, AT_SYMLINK_NOFOLLOW) == -1)
+    {
+        ERR("utimensat");
     }
 }
 
