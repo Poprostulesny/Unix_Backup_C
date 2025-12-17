@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "list_inotify_events.h"
 #include "list_move_events.h"
 #include "list_targets.h"
@@ -47,7 +48,7 @@ void delete_source_node(node_sc* node)
         pthread_mutex_lock(&node->watchers.mtx);
         if (node->watchers.size > 0)
         {
-            Node_wd* current = &node->watchers.head;
+            Node_wd* current = node->watchers.head;
             Node_wd * next;
             while (current != NULL)
             {//errors dont bother us since either way it is ok
@@ -55,6 +56,7 @@ void delete_source_node(node_sc* node)
                 inotify_rm_watch(node->fd, current->wd);
                 free(current->source_friendly);
                 free(current->source_full);
+                free(current->path);
                 free(current->suffix);
                 free(current);
                 current = next;;
@@ -67,7 +69,7 @@ void delete_source_node(node_sc* node)
         pthread_mutex_lock(&node->mov_dict.mtx);
         if (node->mov_dict.size > 0)
         {
-            M_node* current = &node->mov_dict.head;
+            M_node* current = node->mov_dict.head;
             M_node*next;
             while (current != NULL)
             {   next= current->next;
@@ -92,6 +94,7 @@ void delete_source_node(node_sc* node)
         {
             pthread_mutex_destroy(&node->mov_dict.mtx);
         }
+        pthread_mutex_destroy(&node->stop_mtx);
         free(node);
     }
 }

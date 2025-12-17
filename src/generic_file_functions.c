@@ -22,6 +22,37 @@
 
 /* defined here, declared in header */
 node_sc* _source_node;
+static pthread_mutex_t backup_ctx_mtx;
+static pthread_once_t backup_ctx_once = PTHREAD_ONCE_INIT;
+
+static void backup_ctx_init(void)
+{
+    pthread_mutexattr_t attr;
+    if (pthread_mutexattr_init(&attr) != 0)
+    {
+        ERR("pthread_mutexattr_init");
+    }
+    if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE) != 0)
+    {
+        ERR("pthread_mutexattr_settype");
+    }
+    if (pthread_mutex_init(&backup_ctx_mtx, &attr) != 0)
+    {
+        ERR("pthread_mutex_init");
+    }
+    pthread_mutexattr_destroy(&attr);
+}
+
+void backup_ctx_lock(void)
+{
+    pthread_once(&backup_ctx_once, backup_ctx_init);
+    pthread_mutex_lock(&backup_ctx_mtx);
+}
+
+void backup_ctx_unlock(void)
+{
+    pthread_mutex_unlock(&backup_ctx_mtx);
+}
 
 void checked_mkdir(const char* path)
 {
@@ -124,20 +155,6 @@ void copy_permissions_and_attributes(const char* source, const char* dest)
     {
         ERR("utimensat");
     }
-}
-
-void copy_permissions_and_attributes_all_targets(const char* source_path, const char* suffix, list_tg* l) {
-    pthread_mutex_lock(&l->mtx);
-    node_tr *current = l->head;
-
-    while(current!=NULL){
-        char * desination_path = concat(2, current->target_full, suffix);
-        copy_permissions_and_attributes(source_path, desination_path);
-        current=current->next;
-        free(desination_path);
-    }
-
-    pthread_mutex_unlock(&l->mtx);
 }
 
 /*-----------------------------------------------------*/
@@ -288,7 +305,7 @@ void copy_link(const char* path_where, const char* path_dest)
     }
 }
 
-void copy(const char* source, const char* dest, const char* backup_source, const char* backup_target) {
+void copy(const char* source, const char* dest, char* backup_source, char* backup_target) {
     struct stat st;
 
     if (lstat(source, &st) == -1) {
@@ -299,6 +316,7 @@ void copy(const char* source, const char* dest, const char* backup_source, const
         }
     }
 
+    backup_ctx_lock();
     if (S_ISLNK(st.st_mode)) {
         _source = backup_source;
         _target = backup_target;
@@ -308,6 +326,7 @@ void copy(const char* source, const char* dest, const char* backup_source, const
     } else if (S_ISREG(st.st_mode)) {
         copy_file(source, dest);
     }
+    backup_ctx_unlock();
 }
 
 void copy_to_all_targets(const char* source_path, const char* file_suffix, list_tg* l, char* source_full)
@@ -358,6 +377,7 @@ void copy_to_all_targets(const char* source_path, const char* file_suffix, list_
 
 int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ftw)
 {
+    backup_ctx_lock();
     char* path_new = get_path_to_target(_source, _target, path);
     if (path_new == NULL)
     {
@@ -378,5 +398,6 @@ int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ft
         copy_link(path, path_new);
     }
     free(path_new);
+    backup_ctx_unlock();
     return 0;
 }

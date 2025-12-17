@@ -16,8 +16,6 @@ void initial_backup(node_sc *source_node , char* source_friendly, char* target);
 int deleter(const char* path, const struct stat* s, int flag, struct FTW* ftw);
 //recursively deletes all files in a given directory
 void recursive_deleter(char* path);
-//just exists dont worry abt it
-void create_watcher(char* source, char* target);
 
 void new_folder_init(node_sc* source_node, char* path);
 void inotify_reader(int fd, list_wd* wd_list, Ino_List* inotify);

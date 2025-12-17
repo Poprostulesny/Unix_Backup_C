@@ -33,8 +33,6 @@ typedef struct Move_Node
     uint32_t cookie;
     char * move_from;
     char * move_to;
-    int wd_from;
-    int source_to;
     struct Node_source* source;
     struct Move_Node * next;
     struct Move_Node * prev;
@@ -115,6 +113,9 @@ typedef struct Node_source
 {   
     char* source_full;
     char* source_friendly;
+    pthread_t thread;
+    int stop_thread;
+    pthread_mutex_t stop_mtx;
     int is_inotify_initialized;
     int fd;
     struct List_wd watchers;

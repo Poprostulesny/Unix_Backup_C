@@ -75,11 +75,18 @@ static void handle_expired_node(M_list* l, M_node* current, node_sc* source)
     {
         char* suf_to = get_end_suffix(source->source_full, current->move_to);
         struct stat st;
-        lstat(current->move_to, &st);
-        if(!S_ISDIR(st.st_mode)){
+        if (lstat(current->move_to, &st) == -1)
+        {
+            free(suf_to);
+            delete_node(l, current);
+            return;
+        }
+        if (!S_ISDIR(st.st_mode))
+        {
             copy_to_all_targets(current->move_to, suf_to, &source->targets, source->source_full);
         }
-        else{
+        else
+        {
             new_folder_init(source, current->move_to);
         }
         free(suf_to);

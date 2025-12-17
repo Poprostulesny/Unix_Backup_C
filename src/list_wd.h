@@ -12,7 +12,4 @@ void add_wd_node(list_wd* l, int wd, char* source_friendly, char* source_full, c
 // Function to find an element by wd
 Node_wd* find_element_by_wd(list_wd* l, int wd);
 
-// Function to delete all wd with the given source
-void delete_all_wd_by_path(list_wd* l, char * source_friendly);
-
 #endif /* LIST_WD_H */

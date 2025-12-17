@@ -1,13 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 #include <time.h>
 #include "lists_common.h"
-
 
 /* GLOBAL VARIABLES*/
 list_bck init_backup_tasks;
@@ -33,5 +32,4 @@ void init_lists(void)
     {
         ERR("pthread_mutex_init init_backup_tasks");
     }
-
 }

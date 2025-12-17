@@ -9,23 +9,34 @@
 #ifndef ERR
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #endif
-int min(int a, int b) { return a < b ? a : b; }
 
 // returns 1 if target is in source, 0 otherwise
 int is_target_in_source(char* source, char* target)
 {
-    int i = 0;
-    int n = min((int)strlen(target), (int)strlen(source));
-    while (source[i] == target[i] && i < n)
+    if (source == NULL || target == NULL)
     {
-        i++;
+        return 0;
     }
-    if (i == (int)strlen(source))
+
+    size_t source_len = strlen(source);
+    size_t target_len = strlen(target);
+
+    if (source_len == 0 || target_len < source_len)
+    {
+        return 0;
+    }
+
+    if (strncmp(source, target, source_len) != 0)
+    {
+        return 0;
+    }
+
+    if (target_len == source_len)
     {
         return 1;
     }
 
-    return 0;
+    return target[source_len] == '/';
 }
 
 char* concat(int n, ...)
@@ -66,15 +77,24 @@ char* concat(int n, ...)
     return out;
 }
 
-char* get_end_suffix(const char* base,const char* full)
+char* get_end_suffix(const char* base, const char* full)
 {
-    int i = 0;
-    while (base[i] == full[i] && i < min(strlen(base), strlen(full)))
+    if (base == NULL || full == NULL)
+    {
+        return NULL;
+    }
+
+    size_t base_len = strlen(base);
+    size_t full_len = strlen(full);
+    size_t limit = (base_len < full_len) ? base_len : full_len;
+    size_t i = 0;
+
+    while (i < limit && base[i] == full[i])
     {
         i++;
     }
 
-    if (strlen(base) == strlen(full))
+    if (base_len == full_len && i == base_len)
     {
         char* result = strdup("");
         if (result == NULL)

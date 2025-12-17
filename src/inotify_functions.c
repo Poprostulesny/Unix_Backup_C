@@ -169,6 +169,7 @@ int backup_walk_inotify_init(const char* path, const struct stat* s, int flag, s
         {
             ERR("inotify_add_watch");
         }
+        backup_ctx_lock();
         char* suffix = get_end_suffix(_source, (char*)path);
         if (suffix == NULL)
         {
@@ -179,6 +180,7 @@ int backup_walk_inotify_init(const char* path, const struct stat* s, int flag, s
             }
         }
         add_wd_node(&_source_node->watchers, wd, _source_friendly, _source, path, suffix);
+        backup_ctx_unlock();
         free(suffix);
     }
     return 0;
@@ -191,6 +193,7 @@ void initial_backup(node_sc* source_node, char* source_friendly, char* target)
 #endif
     node_sc* src_node = find_element_by_source(source_friendly);
 
+    backup_ctx_lock();
     _source = source_node->source_full;
     _target = target;
     _source_node = source_node;
@@ -216,6 +219,7 @@ void initial_backup(node_sc* source_node, char* source_friendly, char* target)
     _source_node=NULL;
     _source = NULL;
     _target = NULL;
+    backup_ctx_unlock();
 #ifdef DEBUG
     printf("Finished\n");
 #endif
@@ -251,14 +255,13 @@ void recursive_deleter(char* path)
     INOTIFY HELPERS
 
 */
-void create_watcher(char* source, char* target) {}
-
 void new_folder_init(node_sc* source_node, char* path) {
     if (source_node == NULL || path == NULL)
     {
         return;
     }
 
+    backup_ctx_lock();
     _source = source_node->source_full;
     _source_friendly = source_node->source_friendly;
     _source_node = source_node;
@@ -313,6 +316,7 @@ void new_folder_init(node_sc* source_node, char* path) {
     _source_friendly = NULL;
     _source = NULL;
     _target = NULL;
+    backup_ctx_unlock();
 }
 
 void inotify_reader(int fd, list_wd* wd_list, Ino_List *inotify)
@@ -430,9 +434,16 @@ void event_handler(node_sc *source_node)
 {
     Ino_List *inotify_events = &source_node->events;
     list_wd *wd_list = &source_node->watchers;
-    while (inotify_events->size > 0)
+    while (1)
     {
+        pthread_mutex_lock(&inotify_events->mtx);
         Ino_Node* event = inotify_events->head;
+        if (event == NULL)
+        {
+            pthread_mutex_unlock(&inotify_events->mtx);
+            break;
+        }
+        pthread_mutex_unlock(&inotify_events->mtx);
 
         int is_dir = (event->mask & IN_ISDIR) != 0;
 

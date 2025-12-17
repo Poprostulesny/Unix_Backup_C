@@ -24,6 +24,10 @@ void add_inotify_event(list_wd* wd_list, Ino_List* l, struct inotify_event *even
     }
 
     Node_wd *wd_node = find_element_by_wd(wd_list, event->wd);
+    if (wd_node == NULL)
+    {
+        return;
+    }
 
     Ino_Node *new_node = malloc(sizeof(Ino_Node));
     if (new_node == NULL)

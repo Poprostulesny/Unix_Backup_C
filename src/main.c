@@ -33,9 +33,11 @@
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #define DEBUG
 
-volatile sig_atomic_t finish_work_flag = 0;
-volatile sig_atomic_t restore_flag_pending = 0;
-volatile sig_atomic_t restore_flag_waiting = 0;
+static pthread_mutex_t finish_flag_mtx = PTHREAD_MUTEX_INITIALIZER;
+static int finish_work_flag = 0;
+static int restore_flag_pending = 0;
+static pthread_mutex_t restore_flag_mtx = PTHREAD_MUTEX_INITIALIZER;
+static int restore_flag_waiting = 0;
 
 /* GLOBAL VARIABLES */
 char* _source;
@@ -43,6 +45,9 @@ char* _source_friendly;
 char* _target;
 int fd;
 /*-------------------*/
+
+void* backup_handler(void* arg);
+void restore(char* tok);
 
 /*
 
@@ -201,6 +206,13 @@ int take_input()
         source_elem->mov_dict.tail = NULL;
         source_elem->mov_dict.size = -1;
         memset(&source_elem->mov_dict.mtx, 0, sizeof(pthread_mutex_t));
+        if (pthread_mutex_init(&source_elem->stop_mtx, NULL) != 0)
+        {
+            ERR("pthread_mutex_init stop");
+        }
+        source_elem->fd = -1;
+        source_elem->stop_thread = 0;
+        source_elem->thread = 0;
         was_source_added = 1;
         #ifdef DEBUG
          fprintf(stderr, "NEW node_sc %p, source='%s'\n", (void*)source_elem, source_elem->source_full);
@@ -216,6 +228,10 @@ int take_input()
     if (cnt > 0 && was_source_added)
     {
         list_source_add(source_elem);
+        if (pthread_create(&source_elem->thread, NULL, backup_handler, source_elem) != 0)
+        {
+            ERR("pthread_create backup");
+        }
     }
     // If the lenght of list of our target is zero delete it
     else if (source_elem->targets.size == 0)
@@ -327,49 +343,80 @@ void end(char* source_friendly)
     // If we have deleted all targets from the source node then we can remove it
     if (node_found->targets.size == 0)
     {
+        pthread_mutex_lock(&node_found->stop_mtx);
+        node_found->stop_thread = 1;
+        pthread_mutex_unlock(&node_found->stop_mtx);
+        pthread_join(node_found->thread, NULL);
         list_source_delete(source_friendly);
     }
 }
-void inotify_jobs(){
-    pthread_mutex_lock(&backups.mtx);
-    node_sc * current = backups.head;
-
-    while(current!=NULL){
-        inotify_reader(current->fd, &current->watchers, &current->events);
-        event_handler(current);
-        current=current->next;
+static void inotify_jobs(node_sc* source_node){
+    if (source_node == NULL)
+    {
+        return;
     }
-     pthread_mutex_lock(&backups.mtx);
+    if (source_node->fd < 0)
+    {
+        return;
+    }
+    inotify_reader(source_node->fd, &source_node->watchers, &source_node->events);
+    event_handler(source_node);
+    check_move_events_list(&source_node->mov_dict, source_node);
 }
 
 void* backup_handler(void* arg)
 {   
     node_sc * source = (node_sc*)(arg);
     while (1)
-    {   if (restore_flag_pending)
+    {   int need_wait = 0;
+        pthread_mutex_lock(&restore_flag_mtx);
+        if (restore_flag_pending)
         {
-            restore_flag_waiting = 1;
-            while (restore_flag_pending)
+            restore_flag_waiting++;
+            need_wait = 1;
+        }
+        pthread_mutex_unlock(&restore_flag_mtx);
+
+        if (need_wait)
+        {
+            while (1)
             {
+                pthread_mutex_lock(&restore_flag_mtx);
+                int pending_now = restore_flag_pending;
+                if (!pending_now)
+                {
+                    restore_flag_waiting--;
+                    pthread_mutex_unlock(&restore_flag_mtx);
+                    break;
+                }
+                pthread_mutex_unlock(&restore_flag_mtx);
                 sleep(1);
             }
-            restore_flag_waiting = 0;
         }
         // init backup job
-        sleep(4);
         pthread_mutex_lock(&init_backup_tasks.mtx);
         Node_init* job = init_backup_tasks.head;
+        while (job != NULL && strcmp(job->source_full, source->source_full) != 0)
+        {
+            job = job->next;
+        }
         if (job != NULL)
         {
-            // detach from queue under lock
-            init_backup_tasks.head = job->next;
-            if (init_backup_tasks.head != NULL)
+            if (job->prev != NULL)
             {
-                init_backup_tasks.head->prev = NULL;
+                job->prev->next = job->next;
             }
             else
             {
-                init_backup_tasks.tail = NULL;
+                init_backup_tasks.head = job->next;
+            }
+            if (job->next != NULL)
+            {
+                job->next->prev = job->prev;
+            }
+            else
+            {
+                init_backup_tasks.tail = job->prev;
             }
             init_backup_tasks.size--;
         }
@@ -377,11 +424,7 @@ void* backup_handler(void* arg)
         
         if (job != NULL)
         {
-            node_sc* src_node = find_element_by_source(job->source_friendly);
-            if (src_node != NULL)
-            {
-                initial_backup(src_node, job->source_friendly, job->target_full);
-            }
+            initial_backup(source, job->source_friendly, job->target_full);
             free(job->source_full);
             free(job->source_friendly);
             free(job->target_full);
@@ -390,23 +433,34 @@ void* backup_handler(void* arg)
         //end init backup job
 
         //read fd job
-        
-        inotify_jobs();
+        inotify_jobs(source);
 
         //end read fd job
 
     
 
-        if (finish_work_flag == 1)
+        int stop_now = 0;
+        pthread_mutex_lock(&finish_flag_mtx);
+        stop_now = finish_work_flag;
+        pthread_mutex_unlock(&finish_flag_mtx);
+        if (!stop_now)
+        {
+            pthread_mutex_lock(&source->stop_mtx);
+            stop_now = source->stop_thread;
+            pthread_mutex_unlock(&source->stop_mtx);
+        }
+
+        if (stop_now)
         {
             break;
         }
+        sleep(4);
 
     }
 
     return NULL;
 }
-void restore(char * tok, int thread_created){
+void restore(char * tok){
      char* source_tok = strtok(NULL, " ");
             char* target_tok = strtok(NULL, " ");
             if (source_tok == NULL || target_tok == NULL)
@@ -442,20 +496,40 @@ void restore(char * tok, int thread_created){
                 return;
             }
 
+            pthread_mutex_lock(&restore_flag_mtx);
             restore_flag_waiting = 0;
             restore_flag_pending = 1;
+            pthread_mutex_unlock(&restore_flag_mtx);
+            pthread_mutex_lock(&backups.mtx);
+            int expected_waiting = backups.size;
+            pthread_mutex_unlock(&backups.mtx);
 
-            int expected_waiting = thread_created ? 1 : 0;
-            while (restore_flag_waiting < expected_waiting)
+            while (1)
             {
+                pthread_mutex_lock(&restore_flag_mtx);
+                int waiting_now = restore_flag_waiting;
+                pthread_mutex_unlock(&restore_flag_mtx);
+                if (waiting_now >= expected_waiting)
+                {
+                    break;
+                }
                 sleep(1);
             }
 
             restore_checkpoint(source_node->source_full, target_node->target_full);
 
+            pthread_mutex_lock(&restore_flag_mtx);
             restore_flag_pending = 0;
-            while (restore_flag_waiting != 0)
+            pthread_mutex_unlock(&restore_flag_mtx);
+            while (1)
             {
+                pthread_mutex_lock(&restore_flag_mtx);
+                int waiting_now = restore_flag_waiting;
+                pthread_mutex_unlock(&restore_flag_mtx);
+                if (waiting_now == 0)
+                {
+                    break;
+                }
                 sleep(1);
             }
 }
@@ -465,8 +539,6 @@ void input_handler()
     char* buff = NULL;
     int n = 0;
     int k;
-    int thread_created = 0;
-    pthread_t backup_thread = 0;
     while ((n = getline(&buff, &z, stdin)) != -1)
     {
         if (buff[n - 1] == '\n')
@@ -486,14 +558,6 @@ void input_handler()
         // input in the form add <source path> <target path> with multiple target paths
         if (strcmp(tok, "add") == 0)
         {
-            if (thread_created == 0)
-            {
-                if (pthread_create(&backup_thread, NULL, backup_handler, NULL) != 0)
-                {
-                    ERR("pthread_create backup");
-                }
-                thread_created = 1;
-            }
             if ((k = take_input()) == 0)
             {
                 // do smth
@@ -515,17 +579,44 @@ void input_handler()
         }
         else if (strcmp(tok, "restore") == 0)
         {   
-           restore(tok, thread_created);
+           restore(tok);
         }
         else if (strcmp(tok, "exit") == 0)
         {
-           
-
-            if(thread_created){
-                finish_work_flag=1;
-                pthread_join(backup_thread, NULL);
+            pthread_mutex_lock(&finish_flag_mtx);
+            finish_work_flag=1;
+            pthread_mutex_unlock(&finish_flag_mtx);
+            pthread_mutex_lock(&backups.mtx);
+            node_sc* cur = backups.head;
+            int count = backups.size;
+            node_sc** to_join = NULL;
+            if (count > 0)
+            {
+                to_join = malloc(sizeof(node_sc*) * count);
+                if (to_join == NULL)
+                {
+                    pthread_mutex_unlock(&backups.mtx);
+                    ERR("malloc");
+                }
             }
-            
+            int idx = 0;
+            while (cur != NULL)
+            {
+                pthread_mutex_lock(&cur->stop_mtx);
+                cur->stop_thread = 1;
+                pthread_mutex_unlock(&cur->stop_mtx);
+                if (to_join != NULL && idx < count)
+                {
+                    to_join[idx++] = cur;
+                }
+                cur = cur->next;
+            }
+            pthread_mutex_unlock(&backups.mtx);
+            for (int i = 0; i < idx; i++)
+            {
+                pthread_join(to_join[i]->thread, NULL);
+            }
+            free(to_join);
             delete_backups_list();
             free(buff);
             return;
@@ -536,10 +627,40 @@ void input_handler()
         }
     }
 
-    if(thread_created){
-        finish_work_flag=1;
-        pthread_join(backup_thread, NULL);
+    pthread_mutex_lock(&finish_flag_mtx);
+    finish_work_flag=1;
+    pthread_mutex_unlock(&finish_flag_mtx);
+    pthread_mutex_lock(&backups.mtx);
+    node_sc* cur = backups.head;
+    int count = backups.size;
+    node_sc** to_join = NULL;
+    if (count > 0)
+    {
+        to_join = malloc(sizeof(node_sc*) * count);
+        if (to_join == NULL)
+        {
+            pthread_mutex_unlock(&backups.mtx);
+            ERR("malloc");
+        }
     }
+    int idx = 0;
+    while (cur != NULL)
+    {
+        pthread_mutex_lock(&cur->stop_mtx);
+        cur->stop_thread = 1;
+        pthread_mutex_unlock(&cur->stop_mtx);
+        if (to_join != NULL && idx < count)
+        {
+            to_join[idx++] = cur;
+        }
+        cur = cur->next;
+    }
+    pthread_mutex_unlock(&backups.mtx);
+    for (int i = 0; i < idx; i++)
+    {
+        pthread_join(to_join[i]->thread, NULL);
+    }
+    free(to_join);
     delete_backups_list();
     free(buff);
     
