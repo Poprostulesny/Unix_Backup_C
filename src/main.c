@@ -33,7 +33,7 @@
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #define DEBUG
 
-__sig_atomic_t finish_work_flag = 0;
+volatile sig_atomic_t finish_work_flag = 0;
 volatile sig_atomic_t restore_flag_pending = 0;
 volatile sig_atomic_t restore_flag_waiting = 0;
 
@@ -343,7 +343,8 @@ void inotify_jobs(){
 }
 
 void* backup_handler(void* arg)
-{
+{   
+    node_sc * source = (node_sc*)(arg);
     while (1)
     {   if (restore_flag_pending)
         {
@@ -373,7 +374,7 @@ void* backup_handler(void* arg)
             init_backup_tasks.size--;
         }
         pthread_mutex_unlock(&init_backup_tasks.mtx);
-
+        
         if (job != NULL)
         {
             node_sc* src_node = find_element_by_source(job->source_friendly);
@@ -404,6 +405,59 @@ void* backup_handler(void* arg)
     }
 
     return NULL;
+}
+void restore(char * tok, int thread_created){
+     char* source_tok = strtok(NULL, " ");
+            char* target_tok = strtok(NULL, " ");
+            if (source_tok == NULL || target_tok == NULL)
+            {
+                puts("Invalid syntax\n");
+                return;
+            }
+
+            node_sc* source_node = find_element_by_source(source_tok);
+            if (source_node == NULL)
+            {
+                puts("No such source");
+                return;
+            }
+
+            pthread_mutex_lock(&source_node->targets.mtx);
+            node_tr* current = source_node->targets.head;
+            node_tr* target_node = NULL;
+            while (current != NULL)
+            {
+                if (strcmp(current->target_friendly, target_tok) == 0)
+                {
+                    target_node = current;
+                    break;
+                }
+                current = current->next;
+            }
+            pthread_mutex_unlock(&source_node->targets.mtx);
+
+            if (target_node == NULL)
+            {
+                puts("No such target for this source");
+                return;
+            }
+
+            restore_flag_waiting = 0;
+            restore_flag_pending = 1;
+
+            int expected_waiting = thread_created ? 1 : 0;
+            while (restore_flag_waiting < expected_waiting)
+            {
+                sleep(1);
+            }
+
+            restore_checkpoint(source_node->source_full, target_node->target_full);
+
+            restore_flag_pending = 0;
+            while (restore_flag_waiting != 0)
+            {
+                sleep(1);
+            }
 }
 void input_handler()
 {
@@ -460,58 +514,8 @@ void input_handler()
             end(tok);
         }
         else if (strcmp(tok, "restore") == 0)
-        {
-            char* source_tok = strtok(NULL, " ");
-            char* target_tok = strtok(NULL, " ");
-            if (source_tok == NULL || target_tok == NULL)
-            {
-                puts("Invalid syntax\n");
-                continue;
-            }
-
-            node_sc* source_node = find_element_by_source(source_tok);
-            if (source_node == NULL)
-            {
-                puts("No such source");
-                continue;
-            }
-
-            pthread_mutex_lock(&source_node->targets.mtx);
-            node_tr* current = source_node->targets.head;
-            node_tr* target_node = NULL;
-            while (current != NULL)
-            {
-                if (strcmp(current->target_friendly, target_tok) == 0)
-                {
-                    target_node = current;
-                    break;
-                }
-                current = current->next;
-            }
-            pthread_mutex_unlock(&source_node->targets.mtx);
-
-            if (target_node == NULL)
-            {
-                puts("No such target for this source");
-                continue;
-            }
-
-            restore_flag_waiting = 0;
-            restore_flag_pending = 1;
-
-            int expected_waiting = thread_created ? 1 : 0;
-            while (restore_flag_waiting < expected_waiting)
-            {
-                sleep(1);
-            }
-
-            restore_checkpoint(source_node->source_full, target_node->target_full);
-
-            restore_flag_pending = 0;
-            while (restore_flag_waiting != 0)
-            {
-                sleep(1);
-            }
+        {   
+           restore(tok, thread_created);
         }
         else if (strcmp(tok, "exit") == 0)
         {
