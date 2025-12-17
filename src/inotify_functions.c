@@ -266,7 +266,7 @@ void new_folder_init(node_sc* source_node, char* path) {
     
     nftw(path, backup_walk_inotify_init, 1024, FTW_PHYS);
 
-   
+    // Build a snapshot of targets to avoid holding the lock during nftw
     pthread_mutex_lock(&source_node->targets.mtx);
     int target_count = source_node->targets.size;
     char** target_paths = NULL;

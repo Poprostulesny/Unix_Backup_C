@@ -1,15 +1,15 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 
+#include "list_sources.h"
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
-#include "list_sources.h"
-#include "list_targets.h"
-#include "list_wd.h"
 #include "list_inotify_events.h"
 #include "list_move_events.h"
+#include "list_targets.h"
+#include "list_wd.h"
 
 #ifndef ERR
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
@@ -31,15 +31,55 @@ void delete_source_node(node_sc* node)
         free(node->source_friendly);
         free(node->source_full);
         pthread_mutex_lock(&node->targets.mtx);
-        node_tr* current_target = node->targets.head;
-        while (current_target != NULL)
+        if (node->targets.size > 0)
         {
-            node_tr* temp = current_target;
-            current_target = current_target->next;
-            delete_target_node(temp);
+            node_tr* current_target = node->targets.head;
+            while (current_target != NULL)
+            {
+                node_tr* temp = current_target;
+                current_target = current_target->next;
+                delete_target_node(temp);
+            }
         }
         pthread_mutex_unlock(&node->targets.mtx);
-        pthread_mutex_destroy(&node->targets.mtx);
+       
+
+        pthread_mutex_lock(&node->watchers.mtx);
+        if (node->watchers.size > 0)
+        {
+            Node_wd* current = &node->watchers.head;
+            Node_wd * next;
+            while (current != NULL)
+            {//errors dont bother us since either way it is ok
+                next=current->next;
+                inotify_rm_watch(node->fd, current->wd);
+                free(current->source_friendly);
+                free(current->source_full);
+                free(current->suffix);
+                free(current);
+                current = next;;
+            }
+        }
+        pthread_mutex_unlock(&node->watchers.mtx);
+      
+        close(node->fd);
+
+        pthread_mutex_lock(&node->mov_dict.mtx);
+        if (node->mov_dict.size > 0)
+        {
+            M_node* current = &node->mov_dict.head;
+            M_node*next;
+            while (current != NULL)
+            {   next= current->next;
+                free(current->move_from);   
+                free(current->move_to);
+                free(current);
+                current = next;
+            }
+        }
+        pthread_mutex_unlock(&node->mov_dict.mtx);
+     ;
+
         if (node->watchers.size != -1)
         {
             pthread_mutex_destroy(&node->watchers.mtx);
@@ -64,9 +104,9 @@ void list_source_add(node_sc* new_node)
     {
         return;
     }
-    #ifdef DEBUG
-        fprintf(stderr, "ADD node_sc %p (source=%s)\n", (void*)new_node, new_node->source_friendly);
-    #endif
+#ifdef DEBUG
+    fprintf(stderr, "ADD node_sc %p (source=%s)\n", (void*)new_node, new_node->source_friendly);
+#endif
 
     if (new_node->targets.head == NULL && new_node->targets.tail == NULL && new_node->targets.size == 0)
     {
@@ -108,11 +148,11 @@ void list_source_add(node_sc* new_node)
             ERR("pthread_mutex_init move_events");
         }
     }
-   
+
     pthread_mutex_lock(&l->mtx);
     new_node->next = l->head;
     new_node->previous = NULL;
-    new_node->is_inotify_initialized=0;
+    new_node->is_inotify_initialized = 0;
     if (l->head != NULL)
     {
         l->head->previous = new_node;
@@ -138,10 +178,9 @@ void list_source_delete(char* source)
 
     pthread_mutex_lock(&l->mtx);
     node_sc* current = l->head;
-    #ifdef DEBUG
-          fprintf(stderr, "DEL node_sc %p (source=%s)\n", (void*)current, current->source_friendly);
-    #endif
- 
+#ifdef DEBUG
+    fprintf(stderr, "DEL node_sc %p (source=%s)\n", (void*)current, current->source_friendly);
+#endif
 
     while (current != NULL)
     {
@@ -213,11 +252,11 @@ node_sc* find_element_by_source(char* source)
     while (current != NULL)
     {
         if (current->source_friendly == NULL)
-        {   
-            #ifdef DEBUG
-         fprintf(stderr, "BUG: current=%p, current->source == NULL (list corrupted)\n", (void*)current);
-            #endif
-          
+        {
+#ifdef DEBUG
+            fprintf(stderr, "BUG: current=%p, current->source == NULL (list corrupted)\n", (void*)current);
+#endif
+
             abort();
         }
         if (strcmp(current->source_friendly, source) == 0)

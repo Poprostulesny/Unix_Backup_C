@@ -7,6 +7,7 @@
 #include <ftw.h>
 #include <limits.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,7 @@
 
 #include "utils.h"
 #include "generic_file_functions.h"
+#include "restore.h"
 #include "inotify_functions.h"
 
 
@@ -32,6 +34,8 @@
 #define DEBUG
 
 __sig_atomic_t finish_work_flag = 0;
+volatile sig_atomic_t restore_flag_pending = 0;
+volatile sig_atomic_t restore_flag_waiting = 0;
 
 /* GLOBAL VARIABLES */
 char* _source;
@@ -332,7 +336,7 @@ void inotify_jobs(){
 
     while(current!=NULL){
         inotify_reader(current->fd, &current->watchers, &current->events);
-        event_handler(&current->watchers, &current->events);
+        event_handler(current);
         current=current->next;
     }
      pthread_mutex_lock(&backups.mtx);
@@ -341,7 +345,16 @@ void inotify_jobs(){
 void* backup_handler(void* arg)
 {
     while (1)
-    {   // init backup job
+    {   if (restore_flag_pending)
+        {
+            restore_flag_waiting = 1;
+            while (restore_flag_pending)
+            {
+                sleep(1);
+            }
+            restore_flag_waiting = 0;
+        }
+        // init backup job
         sleep(4);
         pthread_mutex_lock(&init_backup_tasks.mtx);
         Node_init* job = init_backup_tasks.head;
@@ -363,7 +376,11 @@ void* backup_handler(void* arg)
 
         if (job != NULL)
         {
-            initial_backup(job->source_full, job->source_friendly, job->target_full);
+            node_sc* src_node = find_element_by_source(job->source_friendly);
+            if (src_node != NULL)
+            {
+                initial_backup(src_node, job->source_friendly, job->target_full);
+            }
             free(job->source_full);
             free(job->source_friendly);
             free(job->target_full);
@@ -444,6 +461,57 @@ void input_handler()
         }
         else if (strcmp(tok, "restore") == 0)
         {
+            char* source_tok = strtok(NULL, " ");
+            char* target_tok = strtok(NULL, " ");
+            if (source_tok == NULL || target_tok == NULL)
+            {
+                puts("Invalid syntax\n");
+                continue;
+            }
+
+            node_sc* source_node = find_element_by_source(source_tok);
+            if (source_node == NULL)
+            {
+                puts("No such source");
+                continue;
+            }
+
+            pthread_mutex_lock(&source_node->targets.mtx);
+            node_tr* current = source_node->targets.head;
+            node_tr* target_node = NULL;
+            while (current != NULL)
+            {
+                if (strcmp(current->target_friendly, target_tok) == 0)
+                {
+                    target_node = current;
+                    break;
+                }
+                current = current->next;
+            }
+            pthread_mutex_unlock(&source_node->targets.mtx);
+
+            if (target_node == NULL)
+            {
+                puts("No such target for this source");
+                continue;
+            }
+
+            restore_flag_waiting = 0;
+            restore_flag_pending = 1;
+
+            int expected_waiting = thread_created ? 1 : 0;
+            while (restore_flag_waiting < expected_waiting)
+            {
+                sleep(1);
+            }
+
+            restore_checkpoint(source_node->source_full, target_node->target_full);
+
+            restore_flag_pending = 0;
+            while (restore_flag_waiting != 0)
+            {
+                sleep(1);
+            }
         }
         else if (strcmp(tok, "exit") == 0)
         {
