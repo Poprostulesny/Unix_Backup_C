@@ -122,6 +122,7 @@ typedef struct Node_source
     struct Inotify_List events;
     struct List_target targets;
     struct Move_List mov_dict;
+    struct Init_backup_task_list init_jobs;
     struct Node_source* next;
     struct Node_source* previous;
 } node_sc;
@@ -134,7 +135,6 @@ typedef struct List_source
     int size;
 } list_sc;
 /* Global lists (defined in lists.c) */
-extern list_bck init_backup_tasks;
 extern list_sc backups;
 
 

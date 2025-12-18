@@ -1,19 +1,19 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 
-#include <sys/stat.h>
-#include <sys/types.h>
+#include "generic_file_functions.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <ftw.h>
-#include <unistd.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include "lists_common.h"
-#include "generic_file_functions.h"
 #include "utils.h"
 
 #ifndef ERR
@@ -49,10 +49,7 @@ void backup_ctx_lock(void)
     pthread_mutex_lock(&backup_ctx_mtx);
 }
 
-void backup_ctx_unlock(void)
-{
-    pthread_mutex_unlock(&backup_ctx_mtx);
-}
+void backup_ctx_unlock(void) { pthread_mutex_unlock(&backup_ctx_mtx); }
 
 void checked_mkdir(const char* path)
 {
@@ -133,7 +130,6 @@ int is_empty_dir(char* path)
     return -1;
 }
 
-
 void copy_permissions_and_attributes(const char* source, const char* dest)
 {
     struct stat s;
@@ -207,8 +203,12 @@ char* get_path_to_target(const char* source, const char* target, const char* pat
     return new_path;
 }
 
+
+
+
 void copy_file(const char* path1, const char* path2)
 {
+
 #ifdef DEBUG
     printf("Copying file %s to %s\n", path1, path2);
 #endif
@@ -219,13 +219,18 @@ void copy_file(const char* path1, const char* path2)
     {
         ERR("strdup");
     }
+
     char* last_sep = strrchr(dest_dir, '/');
+
     if (last_sep != NULL)
     {
         *last_sep = '\0';
+
 #ifdef DEBUG
         printf("[copy_file] making path for dest dir: %s\n", dest_dir);
 #endif
+
+
         make_path(dest_dir);
         /* make_path builds all parents, but not the last component; ensure the leaf dir exists */
         checked_mkdir(dest_dir);
@@ -238,8 +243,10 @@ void copy_file(const char* path1, const char* path2)
 #endif
     free(dest_dir);
 
+
     int read_fd = open(path1, O_RDONLY);
     int write_fd = open(path2, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
     if (read_fd < 0)
     {
         ERR("read fd");
@@ -273,6 +280,7 @@ void copy_file(const char* path1, const char* path2)
     }
     copy_permissions_and_attributes(path1, path2);
 }
+
 
 void copy_link(const char* path_where, const char* path_dest)
 {
@@ -320,25 +328,33 @@ void copy_link(const char* path_where, const char* path_dest)
     }
 }
 
-void copy(const char* source, const char* dest, char* backup_source, char* backup_target) {
+void copy(const char* source, const char* dest, char* backup_source, char* backup_target)
+{
     struct stat st;
 
-    if (lstat(source, &st) == -1) {
-        if (errno != ENOENT) {
+    if (lstat(source, &st) == -1)
+    {
+        if (errno != ENOENT)
+        {
             ERR("lstat");
-        } else {
+        }
+        else
+        {
             return;
         }
     }
 
     backup_ctx_lock();
-    if (S_ISLNK(st.st_mode)) {
+    if (S_ISLNK(st.st_mode))
+    {
         _source = backup_source;
         _target = backup_target;
         copy_link(source, dest);
         _target = NULL;
         _source = NULL;
-    } else if (S_ISREG(st.st_mode)) {
+    }
+    else if (S_ISREG(st.st_mode))
+    {
         copy_file(source, dest);
     }
     backup_ctx_unlock();
@@ -350,8 +366,10 @@ void copy(const char* source, const char* dest, char* backup_source, char* backu
 
 */
 // template function for all operations for all paths
-void for_each_target_path(node_sc* source_node, const char* suffix, void (*f)(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx), void* ctx)
+void for_each_target_path(node_sc* source_node, const char* suffix,
+                          void (*f)(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx), void* ctx)
 {
+    
     if (source_node == NULL || f == NULL)
     {
         return;

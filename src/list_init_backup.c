@@ -13,15 +13,15 @@
 
 
 // Functions for init backup tasks
-void init_backup_add_job(char* source, char* source_friendly, char* target)
+void init_backup_add_job(list_bck* l, char* source, char* source_friendly, char* target)
 {
-    list_bck* l = &init_backup_tasks;
     if (l == NULL || source == NULL || source_friendly == NULL || target == NULL)
     {
         return;
     }
 
     Node_init* new_node = malloc(sizeof(Node_init));
+
     if (new_node == NULL)
     {
         return;
@@ -49,15 +49,20 @@ void init_backup_add_job(char* source, char* source_friendly, char* target)
     pthread_mutex_unlock(&l->mtx);
 }
 
-void init_backup_job_done()
+//Pop from the queue of the init lists
+Node_init* init_backup_pop_job(list_bck* l)
 {
-    list_bck* l = &init_backup_tasks;
-    if (l == NULL || l->head == NULL)
+    if (l == NULL)
     {
-        return;
+        return NULL;
     }
 
     pthread_mutex_lock(&l->mtx);
+    if (l->head == NULL)
+    {
+        pthread_mutex_unlock(&l->mtx);
+        return NULL;
+    }
     Node_init* to_delete = l->head;
     l->head = to_delete->next;
     if (l->head != NULL)
@@ -71,8 +76,5 @@ void init_backup_job_done()
 
     l->size--;
     pthread_mutex_unlock(&l->mtx);
-    free(to_delete->source_full);
-    free(to_delete->source_friendly);
-    free(to_delete->target_full);
-    free(to_delete);
+    return to_delete;
 }

@@ -9,7 +9,6 @@
 #include "lists_common.h"
 
 /* GLOBAL VARIABLES*/
-list_bck init_backup_tasks;
 list_sc backups;
 /*-------------------*/
 
@@ -22,14 +21,5 @@ void init_lists(void)
     if (pthread_mutex_init(&backups.mtx, NULL) != 0)
     {
         ERR("pthread_mutex_init backups");
-    }
-
-    // Initial backup tasks queue
-    init_backup_tasks.head = NULL;
-    init_backup_tasks.tail = NULL;
-    init_backup_tasks.size = 0;
-    if (pthread_mutex_init(&init_backup_tasks.mtx, NULL) != 0)
-    {
-        ERR("pthread_mutex_init init_backup_tasks");
     }
 }

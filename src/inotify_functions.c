@@ -2,23 +2,23 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 
-#include <sys/inotify.h>
-#include <sys/stat.h>
-#include <ftw.h>
-#include <unistd.h>
-#include <fcntl.h>
+#include "inotify_functions.h"
 #include <errno.h>
+#include <fcntl.h>
+#include <ftw.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
-#include "inotify_functions.h"
+#include <sys/inotify.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "generic_file_functions.h"
-#include "lists_common.h"
-#include "list_wd.h"
 #include "list_inotify_events.h"
-#include "list_sources.h"
 #include "list_move_events.h"
+#include "list_sources.h"
+#include "list_wd.h"
+#include "lists_common.h"
 #include "utils.h"
 
 #ifndef DEBUG
@@ -34,12 +34,14 @@
 #endif
 
 #ifndef INOTIFY_MASK
-#define INOTIFY_MASK (IN_CREATE | IN_CLOSE_WRITE | IN_DELETE | IN_DELETE_SELF | \
-                      IN_MOVE_SELF | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB)
+#define INOTIFY_MASK \
+    (IN_CREATE | IN_CLOSE_WRITE | IN_DELETE | IN_DELETE_SELF | IN_MOVE_SELF | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB)
 #endif
 
-
-
+/*
+Backup walk with initializing inotify for each directory recursivly, it needs global variables to be set:
+_source_node, _source, _source_friendly. It does not copy files.
+*/
 int backup_walk_inotify_init(const char* path, const struct stat* s, int flag, struct FTW* ftw)
 {
     if (flag == FTW_D)
@@ -65,15 +67,21 @@ int backup_walk_inotify_init(const char* path, const struct stat* s, int flag, s
     }
     return 0;
 }
-
+/*
+Initial backup function with inotify initialization it checks whether inotify has been instantiated for the given
+source,and if not it instanitates it. The function sets the following global variables for use in its revursive calls:
+_source_node, _source, _source_friendly, _target
+*/
 void initial_backup(node_sc* source_node, char* source_friendly, char* target)
 {
 #ifdef DEBUG
     printf("Doing an initial backup of %s to %s...\n", source_node->source_full, target);
 #endif
+
     node_sc* src_node = find_element_by_source(source_friendly);
 
     backup_ctx_lock();
+    // Setting variables needed for nftw
     _source = source_node->source_full;
     _target = target;
     _source_node = source_node;
@@ -82,62 +90,74 @@ void initial_backup(node_sc* source_node, char* source_friendly, char* target)
     {
         ERR("initial_backup");
     }
-    nftw(source_node->source_full, backup_walk, 1024, FTW_PHYS);
-
+    // Instantiating inotify for the source if not present
     if (src_node != NULL && src_node->is_inotify_initialized == 0)
     {
-        
-       src_node->fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-       if(src_node->fd==-1){
-        ERR("inotify init");
-       }
+        src_node->fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+        if (src_node->fd == -1)
+        {
+            ERR("inotify init");
+        }
         nftw(source_node->source_full, backup_walk_inotify_init, 1024, FTW_PHYS);
         src_node->is_inotify_initialized = 1;
-        
     }
+
+    // Copying files to a given target
+    nftw(source_node->source_full, backup_walk, 1024, FTW_PHYS);
+
     _source_friendly = NULL;
-    _source_node=NULL;
+    _source_node = NULL;
     _source = NULL;
     _target = NULL;
     backup_ctx_unlock();
+
 #ifdef DEBUG
     printf("Finished\n");
 #endif
 }
 
-void new_folder_init(node_sc* source_node, char* path) {
+// Recursive initalization of a new folder in an inotify domain.
+void new_folder_init(node_sc* source_node, char* path)
+{
     if (source_node == NULL || path == NULL)
     {
         return;
     }
 
     backup_ctx_lock();
+
+    // Variables needed for nftw
     _source = source_node->source_full;
     _source_friendly = source_node->source_friendly;
     _source_node = source_node;
-    
-    
+
     nftw(path, backup_walk_inotify_init, 1024, FTW_PHYS);
 
     // Build a snapshot of targets to avoid holding the lock during nftw
     pthread_mutex_lock(&source_node->targets.mtx);
     int target_count = source_node->targets.size;
+
     char** target_paths = NULL;
-    
-    if (target_count > 0) {
+
+    if (target_count > 0)
+    {
         target_paths = malloc(sizeof(char*) * target_count);
-        if (target_paths == NULL) {
+        if (target_paths == NULL)
+        {
             pthread_mutex_unlock(&source_node->targets.mtx);
             ERR("malloc");
         }
-        
+
         node_tr* current = source_node->targets.head;
         int i = 0;
-        while (current != NULL && i < target_count) {
+        while (current != NULL && i < target_count)
+        {
             target_paths[i] = strdup(current->target_full);
-            if (target_paths[i] == NULL) {
+            if (target_paths[i] == NULL)
+            {
                 // Clean up already allocated strings
-                for (int j = 0; j < i; j++) {
+                for (int j = 0; j < i; j++)
+                {
                     free(target_paths[j]);
                 }
                 free(target_paths);
@@ -149,19 +169,21 @@ void new_folder_init(node_sc* source_node, char* path) {
         }
     }
     pthread_mutex_unlock(&source_node->targets.mtx);
-    
-    // Now walk the path for each target WITHOUT holding the mutex
-    for (int i = 0; i < target_count; i++) {
+
+    // Now walk the path for each target without  holding the mutex
+    for (int i = 0; i < target_count; i++)
+    {
         _target = target_paths[i];
         nftw(path, backup_walk, 1024, FTW_PHYS);
     }
-    
+
     // Clean up the snapshot
-    for (int i = 0; i < target_count; i++) {
+    for (int i = 0; i < target_count; i++)
+    {
         free(target_paths[i]);
     }
     free(target_paths);
-    
+
     _source_node = NULL;
     _source_friendly = NULL;
     _source = NULL;
@@ -169,9 +191,9 @@ void new_folder_init(node_sc* source_node, char* path) {
     backup_ctx_unlock();
 }
 
-void inotify_reader(int fd, list_wd* wd_list, Ino_List *inotify)
+//Function to read from the given inotify fd. It adds all events of a given fd to the given inotify list.
+void inotify_reader(int fd, list_wd* wd_list, Ino_List* inotify)
 {
-    
     char buffer[BUF_SIZE];
     ssize_t bytes_read = 0;
 
@@ -224,6 +246,7 @@ void inotify_reader(int fd, list_wd* wd_list, Ino_List *inotify)
                 printf("File: %.*s\n", event->len, event->name);
 #endif
                 add_inotify_event(wd_list, inotify, event);
+
                 // Calculating the padding (by posix standard each entry aligned to 4 bytes)
                 size_t padding = (4 - (event_size % 4)) % 4;
                 offset += event_size + padding;
@@ -241,22 +264,27 @@ void inotify_reader(int fd, list_wd* wd_list, Ino_List *inotify)
     INOTIFY EVENT HANDLING
 
 */
-void debug_printer(char* type, int wd, char* source_friendly, char* path, char * event_name, int is_dir){
-    #ifdef DEBUG
-            printf("Watch %d in folder %s (%s) saw %s on %s (is_dir: %d)\n", wd,
-                  source_friendly, path ,type, event_name,
-                   is_dir);
-    #endif
-
-}
-void event_handler(node_sc *source_node)
+//Helper function used to clean up the code
+void debug_printer(char* type, int wd, char* source_friendly, char* path, char* event_name, int is_dir)
 {
-    Ino_List *inotify_events = &source_node->events;
-    list_wd *wd_list = &source_node->watchers;
+#ifdef DEBUG
+    printf("Watch %d in folder %s (%s) saw %s on %s (is_dir: %d)\n", wd, source_friendly, path, type, event_name,
+           is_dir);
+#endif
+}
+
+//Function handling the Inotify Events of a given source node. 
+void event_handler(node_sc* source_node)
+{   
+    //Helper variables
+    Ino_List* inotify_events = &source_node->events;
+    list_wd* wd_list = &source_node->watchers;
+
     while (1)
-    {
+    {   
         pthread_mutex_lock(&inotify_events->mtx);
         Ino_Node* event = inotify_events->head;
+        //break condition -> no events
         if (event == NULL)
         {
             pthread_mutex_unlock(&inotify_events->mtx);
@@ -266,9 +294,13 @@ void event_handler(node_sc *source_node)
 
         int is_dir = (event->mask & IN_ISDIR) != 0;
 
+        //Finding which watch descriptor has encountered the event (at which path it happened)
         Node_wd* wd_node = find_element_by_wd(wd_list, event->wd);
         size_t src_len = strlen(source_node->source_full);
         int outside_source = 1;
+
+        //check whether the given event happened inside the source directory. This check ensures that a moved out, 
+        //but not yet deleted watcher doesn't trigger a backup to an unspecified location
         if (strncmp(event->full_path, source_node->source_full, src_len) == 0)
         {
             char boundary = event->full_path[src_len];
@@ -278,12 +310,15 @@ void event_handler(node_sc *source_node)
             }
         }
         if (outside_source)
-        {   
+        {
             inotify_rm_watch(source_node->fd, wd_node->wd);
             delete_wd_node(&source_node->watchers, wd_node->wd);
             remove_inotify_event(inotify_events);
+            //no error check since if it didnt exist at this moment than all is good
             continue;
         }
+
+
         const char* suffix = (event->suffix != NULL) ? event->suffix : "";
         if ((event->mask & IN_CREATE) && is_dir)
         {
@@ -309,7 +344,7 @@ void event_handler(node_sc *source_node)
         if (event->mask & IN_MOVED_FROM)
         {
             debug_printer("IN_MOVED_FROM", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
-            add_move_event(&source_node->mov_dict,event->cookie, event->full_path, 1, source_node);
+            add_move_event(&source_node->mov_dict, event->cookie, event->full_path, 1, source_node);
             // mapa cookiesow
             // dodajemy delikwenta
             // jezeli nie ma po MOV_TIME s drugiego eventu, usuwamy
@@ -317,7 +352,7 @@ void event_handler(node_sc *source_node)
         if (event->mask & IN_MOVED_TO)
         {
             debug_printer("IN_MOVED_TO", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
-            add_move_event(&source_node->mov_dict,event->cookie, event->full_path, 0, source_node);
+            add_move_event(&source_node->mov_dict, event->cookie, event->full_path, 0, source_node);
             // jezeli istnieje in_moved_from z cookiesem matchujacym nasz -> przenosimy
             // jezeli po MOV_TIME s nie ma, kopiujemy plik
         }
@@ -336,12 +371,9 @@ void event_handler(node_sc *source_node)
         {
             debug_printer("IN_MOVE_SELF", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
             // brak specjlnego handlingu move nam to ogarnia
-          
-
-            
         }
         if (event->mask & IN_IGNORED)
-        {   
+        {
             debug_printer("IN_IGNORED", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
             delete_wd_node(wd_list, event->wd);
         }

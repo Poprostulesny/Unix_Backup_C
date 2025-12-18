@@ -19,7 +19,8 @@
 
 char * _source_path;
 char * _target_path;
-//przechodzi przez backup i kopiuje zmienione/brakujące pliki do source
+
+//przechodzi przez backup i kopiuje zmienione/brakujące pliki do source, static bo dostepne tylko wewnatrz pliku
 static int restorer(const char* path, const struct stat* s, int flag, struct FTW* ftw){
         char * suf = get_end_suffix(_target_path, path);
         char * dest_path = concat(2, _source_path, suf);

@@ -4,9 +4,9 @@
 #include "lists_common.h"
 
 // Function to add a backup job to a queue
-void init_backup_add_job(char* source, char* source_friendly, char* target);
+void init_backup_add_job(list_bck* list, char* source, char* source_friendly, char* target);
 
-// Function to mark the backup job as done
-void init_backup_job_done(void);
+// Pop first backup job from a queue (returns NULL if none)
+Node_init* init_backup_pop_job(list_bck* list);
 
 #endif /* LIST_INIT_BACKUP_H */

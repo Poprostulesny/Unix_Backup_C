@@ -29,8 +29,11 @@ void delete_source_node(node_sc* node)
 {
     if (node != NULL)
     {
+        // Free memory of the source node, first the generic fields
         free(node->source_friendly);
         free(node->source_full);
+
+        // Free memory of the targets list
         pthread_mutex_lock(&node->targets.mtx);
         if (node->targets.size > 0)
         {
@@ -43,15 +46,16 @@ void delete_source_node(node_sc* node)
             }
         }
         pthread_mutex_unlock(&node->targets.mtx);
-       
-
+        
+        //Free memory of the watch descriptor list
         pthread_mutex_lock(&node->watchers.mtx);
         if (node->watchers.size > 0)
         {
             Node_wd* current = node->watchers.head;
             Node_wd * next;
             while (current != NULL)
-            {//errors dont bother us since either way it is ok
+            {   
+                //errors dont bother us since either way it is ok
                 next=current->next;
                 inotify_rm_watch(node->fd, current->wd);
                 free(current->source_friendly);
@@ -63,9 +67,11 @@ void delete_source_node(node_sc* node)
             }
         }
         pthread_mutex_unlock(&node->watchers.mtx);
-      
+        
+        //closing the file descriptor
         close(node->fd);
 
+        //free the memory of the move dictionary
         pthread_mutex_lock(&node->mov_dict.mtx);
         if (node->mov_dict.size > 0)
         {
@@ -80,8 +86,22 @@ void delete_source_node(node_sc* node)
             }
         }
         pthread_mutex_unlock(&node->mov_dict.mtx);
-     ;
 
+        // free the memory of the init jobs list
+        pthread_mutex_lock(&node->init_jobs.mtx);
+        Node_init* job = node->init_jobs.head;
+        while (job != NULL)
+        {
+            Node_init* next_job = job->next;
+            free(job->source_full);
+            free(job->source_friendly);
+            free(job->target_full);
+            free(job);
+            job = next_job;
+        }
+        pthread_mutex_unlock(&node->init_jobs.mtx);
+        
+        //If the lists where instantiated. then destroy the mutexes
         if (node->watchers.size != -1)
         {
             pthread_mutex_destroy(&node->watchers.mtx);
@@ -94,6 +114,7 @@ void delete_source_node(node_sc* node)
         {
             pthread_mutex_destroy(&node->mov_dict.mtx);
         }
+        pthread_mutex_destroy(&node->init_jobs.mtx);
         pthread_mutex_destroy(&node->stop_mtx);
         free(node);
     }
@@ -111,6 +132,7 @@ void list_source_add(node_sc* new_node)
     fprintf(stderr, "ADD node_sc %p (source=%s)\n", (void*)new_node, new_node->source_friendly);
 #endif
 
+
     if (new_node->targets.head == NULL && new_node->targets.tail == NULL && new_node->targets.size == 0)
     {
         if (pthread_mutex_init(&new_node->targets.mtx, NULL) != 0)
@@ -118,7 +140,7 @@ void list_source_add(node_sc* new_node)
             ERR("pthread_mutex_init targets");
         }
     }
-
+    //Initializing all the lists inside this node
     if (new_node->watchers.size == -1)
     {
         new_node->watchers.head = NULL;
@@ -172,7 +194,7 @@ void list_source_add(node_sc* new_node)
 
 // Function to delete a source node by source name
 void list_source_delete(char* source)
-{
+{   
     list_sc* l = &backups;
     if (l == NULL || source == NULL)
     {
@@ -217,7 +239,7 @@ void list_source_delete(char* source)
     pthread_mutex_unlock(&l->mtx);
 }
 
-// checking whether a given target is already a target by the friendly name
+// Checking whether a given target is already a target by the friendly name
 int find_element_by_target(char* target)
 {
     list_sc* l = &backups;
@@ -229,7 +251,8 @@ int find_element_by_target(char* target)
     pthread_mutex_lock(&l->mtx);
     node_sc* current = l->head;
     while (current != NULL)
-    {
+    {   
+        //This functions checks the target lists itself
         if (find_element_by_target_help(&current->targets, target) == 1)
         {
             pthread_mutex_unlock(&l->mtx);

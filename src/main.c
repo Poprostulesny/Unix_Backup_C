@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <ftw.h>
 #include <pthread.h>
+#include <semaphore.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,11 +31,13 @@
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #define DEBUG
 
-static pthread_mutex_t finish_flag_mtx = PTHREAD_MUTEX_INITIALIZER;
 volatile __sig_atomic_t finish_work_flag = 0;
-static int restore_flag_pending = 0;
+volatile __sig_atomic_t restore_flag_pending = 0;
 static pthread_mutex_t restore_flag_mtx = PTHREAD_MUTEX_INITIALIZER;
-static int restore_flag_waiting = 0;
+//Acknowledgements from worker threads
+static sem_t restore_ack_sem;
+//Releasing of worker threads
+static sem_t restore_release_sem;
 
 /* GLOBAL VARIABLES */
 char* _source;
@@ -44,8 +47,55 @@ char* _target;
 /*-------------------*/
 
 void* backup_handler(void* arg);
-static void request_finish(void);
 static void stop_all_backups(void);
+static void block_all_signals(void);
+static void unblock_sigint_sigterm(void);
+
+
+void sethandler(void (*f)(int), int sigNo)
+{
+    struct sigaction act;
+    memset(&act, 0, sizeof(struct sigaction));
+    act.sa_handler = f;
+    act.sa_flags = 0;
+    if (-1 == sigaction(sigNo, &act, NULL))
+        ERR("sigaction");
+}
+void sig_handler(int sig)
+{
+    finish_work_flag=1;
+}
+
+
+static void block_all_signals()
+{
+    sigset_t set;
+    if (sigfillset(&set) == -1)
+    {
+        ERR("sigfillset");
+    }
+    if (pthread_sigmask(SIG_BLOCK, &set, NULL) != 0)
+    {
+        ERR("pthread_sigmask block all");
+    }
+}
+
+static void unblock_sigint_sigterm()
+{
+    sigset_t set;
+    if (sigemptyset(&set) == -1)
+    {
+        ERR("sigemptyset");
+    }
+    if (sigaddset(&set, SIGINT) == -1 || sigaddset(&set, SIGTERM) == -1)
+    {
+        ERR("sigaddset");
+    }
+    if (pthread_sigmask(SIG_UNBLOCK, &set, NULL) != 0)
+    {
+        ERR("pthread_sigmask unblock");
+    }
+}
 
 /*
 
@@ -54,30 +104,6 @@ static void stop_all_backups(void);
 
 
 */
-// finding whether a path is a subpath of another path
-void sethandler(void (*f)(int), int sigNo)
-{
-    struct sigaction act;
-    memset(&act, 0, sizeof(struct sigaction));
-    act.sa_handler = f;
-    act.sa_flags = 0;
-    sigemptyset(&act.sa_mask);
-
-    if (-1 == sigaction(sigNo, &act, NULL))
-        ERR("sigaction");
-}
-void sig_handler(int sig)
-{
-    (void)sig;
-    request_finish();
-}
-
-static void request_finish(void)
-{
-    pthread_mutex_lock(&finish_flag_mtx);
-    finish_work_flag = 1;
-    pthread_mutex_unlock(&finish_flag_mtx);
-}
 int validate_target(node_sc* to_add, char* tok)
 {
     // If an element is already a target or a source of another element in the list, dont add it to the targets and
@@ -101,7 +127,7 @@ int validate_target(node_sc* to_add, char* tok)
 }
 int parse_targets(node_sc* to_add)
 {
-    char* tok = strtok(NULL, " ");
+    char* tok = tokenizer(NULL);
     int cnt = 0;
     while (tok != NULL)
     {
@@ -110,7 +136,7 @@ int parse_targets(node_sc* to_add)
         if (is_empty_dir(tok) < 0)
         {
             printf("Target has to be an empty directory!\n");
-            tok = strtok(NULL, " ");
+            tok = tokenizer(NULL);
             continue;
         }
 
@@ -124,7 +150,7 @@ int parse_targets(node_sc* to_add)
         if (validate_target(to_add, tok) == 0)
         {
             free(real_tok);
-            tok = strtok(NULL, " ");
+            tok = tokenizer(NULL);
             continue;
         }
 
@@ -149,13 +175,13 @@ int parse_targets(node_sc* to_add)
 
         // Add to the list
         list_target_add(&to_add->targets, new_node);
-        init_backup_add_job(to_add->source_full, to_add->source_friendly, new_node->target_full);
+        init_backup_add_job(&to_add->init_jobs, to_add->source_full, to_add->source_friendly, new_node->target_full);
         #ifdef DEBUG  
         printf("Full source: '%s', friendly: '%s'\n", to_add->source_full, to_add->source_friendly);
         
         #endif
          cnt++;
-        tok = strtok(NULL, " ");
+        tok = tokenizer(NULL);
         free(real_tok);
     }
     #ifdef DEBUG
@@ -167,7 +193,7 @@ int parse_targets(node_sc* to_add)
 
 int take_input()
 {
-    char* tok = strtok(NULL, " ");
+    char* tok = tokenizer(NULL);
     if (tok == NULL)
         return 0;
 
@@ -226,6 +252,13 @@ int take_input()
         source_elem->mov_dict.tail = NULL;
         source_elem->mov_dict.size = -1;
         memset(&source_elem->mov_dict.mtx, 0, sizeof(pthread_mutex_t));
+        source_elem->init_jobs.head = NULL;
+        source_elem->init_jobs.tail = NULL;
+        source_elem->init_jobs.size = 0;
+        if (pthread_mutex_init(&source_elem->init_jobs.mtx, NULL) != 0)
+        {
+            ERR("pthread_mutex_init init_jobs");
+        }
         if (pthread_mutex_init(&source_elem->stop_mtx, NULL) != 0)
         {
             ERR("pthread_mutex_init stop");
@@ -324,7 +357,7 @@ void delete_backups_list()
 
 static void stop_all_backups(void)
 {
-    request_finish();
+    finish_work_flag=1;
 
     pthread_mutex_lock(&backups.mtx);
     node_sc* cur = backups.head;
@@ -371,7 +404,7 @@ END
 */
 void end(char* source_friendly)
 {
-    char* tok = strtok(NULL, " ");
+    char* tok = tokenizer(NULL);
 
     // Find the source node
     node_sc* node_found = find_element_by_source(source_friendly);
@@ -391,7 +424,7 @@ void end(char* source_friendly)
         
         list_target_delete(&node_found->targets, tok);
         cnt++;
-        tok = strtok(NULL, " ");
+        tok = tokenizer(NULL);
     }
 
     if (cnt == 0)
@@ -409,7 +442,9 @@ void end(char* source_friendly)
         list_source_delete(source_friendly);
     }
 }
-static void inotify_jobs(node_sc* source_node){
+
+//Function to handle inotify events per source node
+void inotify_jobs(node_sc* source_node){
     if (source_node == NULL)
     {
         return;
@@ -423,85 +458,61 @@ static void inotify_jobs(node_sc* source_node){
     check_move_events_list(&source_node->mov_dict, source_node);
 }
 
+//Backup work takes a source node as an argument and performs backup operations
 void* backup_handler(void* arg)
 {   
+    block_all_signals();
+
     node_sc * source = (node_sc*)(arg);
     while (1)
-    {   int need_wait = 0;
+    {   
+        //Checking whether we need to stop the loop due to the restore flag(immediately)
+        int need_wait = 0;
         pthread_mutex_lock(&restore_flag_mtx);
         if (restore_flag_pending)
         {
-            restore_flag_waiting++;
             need_wait = 1;
         }
         pthread_mutex_unlock(&restore_flag_mtx);
 
         if (need_wait)
         {
-            while (1)
+            if (sem_post(&restore_ack_sem) == -1)
             {
-                pthread_mutex_lock(&restore_flag_mtx);
-                int pending_now = restore_flag_pending;
-                if (!pending_now)
+                ERR("sem_post restore_ack_sem");
+            }
+            while (sem_wait(&restore_release_sem) == -1)
+            {
+                if (errno == EINTR)
                 {
-                    restore_flag_waiting--;
-                    pthread_mutex_unlock(&restore_flag_mtx);
-                    break;
+                    continue;
                 }
-                pthread_mutex_unlock(&restore_flag_mtx);
-                sleep(1);
+                ERR("sem_wait restore_release_sem");
             }
         }
-        // init backup job
-        pthread_mutex_lock(&init_backup_tasks.mtx);
-        Node_init* job = init_backup_tasks.head;
-        while (job != NULL && strcmp(job->source_full, source->source_full) != 0)
-        {
-            job = job->next;
-        }
-        if (job != NULL)
-        {
-            if (job->prev != NULL)
-            {
-                job->prev->next = job->next;
-            }
-            else
-            {
-                init_backup_tasks.head = job->next;
-            }
-            if (job->next != NULL)
-            {
-                job->next->prev = job->prev;
-            }
-            else
-            {
-                init_backup_tasks.tail = job->prev;
-            }
-            init_backup_tasks.size--;
-        }
-        pthread_mutex_unlock(&init_backup_tasks.mtx);
-        
-        if (job != NULL)
+
+        // Doing initial backups for this source (if any are there)
+        Node_init* job = init_backup_pop_job(&source->init_jobs);
+        while (job != NULL)
         {
             initial_backup(source, job->source_friendly, job->target_full);
             free(job->source_full);
             free(job->source_friendly);
             free(job->target_full);
             free(job);
+            job = init_backup_pop_job(&source->init_jobs);
         }
-        //end init backup job
+        
 
-        //read fd job
+        //Wrapper function for both inotify jobs to do - reading inotify events and processing them
         inotify_jobs(source);
 
-        //end read fd job
+        
 
     
-
+        //If we have finished all backups, then we check for signals to stop work
         int stop_now = 0;
-        pthread_mutex_lock(&finish_flag_mtx);
         stop_now = finish_work_flag;
-        pthread_mutex_unlock(&finish_flag_mtx);
         if (!stop_now)
         {
             pthread_mutex_lock(&source->stop_mtx);
@@ -513,108 +524,113 @@ void* backup_handler(void* arg)
         {
             break;
         }
+        //Sleeping 4s to wait for any new jobs to be added to the list. This amount can be arbitrary
         sleep(4);
 
     }
 
     return NULL;
 }
+
+// Function handling the restore request
 void restore(char * tok){
 
 
-            char* source_tok = strtok(NULL, " ");
-            char* target_tok = strtok(NULL, " ");
-           
-
-            char * real_source = realpath(source_tok,NULL);
-            if(real_source==NULL){
-                if (errno == ENOENT)
-                {
-                    make_path(source_tok);
-                    checked_mkdir(source_tok);
-                    real_source = realpath(source_tok,NULL);
-                    if (real_source == NULL)
-                    {
-                        return;
-                    }
-                }
-                else if (errno == ENOTDIR)
-                {
-                    printf("Source is not a directory!\n");
-                }
-                else
-                {
-                    printf("Invalid input\n");
-                    return;
-                }
-
+    char* source_tok = tokenizer(NULL);
+    char* target_tok = tokenizer(NULL);
+    
+    //Checking whether given sources exist
+    char * real_source = realpath(source_tok,NULL);
+    if(real_source==NULL){
+        if (errno == ENOENT)
+        {
+            make_path(source_tok);
+            checked_mkdir(source_tok);
+            real_source = realpath(source_tok,NULL);
+            if (real_source == NULL)
+            {
+                return;
             }
-            char * real_target = realpath(target_tok,NULL);
+        }
+        else if (errno == ENOTDIR)
+        {
+            printf("Source is not a directory!\n");
+        }
+        else
+        {
+            printf("Invalid input\n");
+            return;
+        }
+
+    }
+    char * real_target = realpath(target_tok,NULL);
+    if (real_target == NULL)
+    {
+        if (errno == ENOENT)
+        {
+            make_path(target_tok);
+            checked_mkdir(target_tok);
+            real_target = realpath(target_tok,NULL);
             if (real_target == NULL)
             {
-                if (errno == ENOENT)
-                {
-                    make_path(target_tok);
-                    checked_mkdir(target_tok);
-                    real_target = realpath(target_tok,NULL);
-                    if (real_target == NULL)
-                    {
-                        return;
-                    }
-                }
-                else if (errno == ENOTDIR)
-                {
-                    printf("Target is not a directory!\n");
-                }
-                else
-                {
-                    printf("Invalid input\n");
-                    return;
-                }
+                return;
             }
+        }
+        else if (errno == ENOTDIR)
+        {
+            printf("Target is not a directory!\n");
+        }
+        else
+        {
+            printf("Invalid input\n");
+            return;
+        }
+    }
 
+    //Setting flags to let other threads know that a restore is pending
+    pthread_mutex_lock(&restore_flag_mtx);
+    restore_flag_pending = 1;
+    pthread_mutex_unlock(&restore_flag_mtx);
+    pthread_mutex_lock(&backups.mtx);
+    int expected_waiting = backups.size;
+    pthread_mutex_unlock(&backups.mtx);
 
-            pthread_mutex_lock(&restore_flag_mtx);
-            restore_flag_waiting = 0;
-            restore_flag_pending = 1;
-            pthread_mutex_unlock(&restore_flag_mtx);
-            pthread_mutex_lock(&backups.mtx);
-            int expected_waiting = backups.size;
-            pthread_mutex_unlock(&backups.mtx);
-
-            while (1)
+    //Waiting for the semaphore to be released by all backup threads - confirmation that they got the signal
+    for (int i = 0; i < expected_waiting; i++)
+    {
+        while (sem_wait(&restore_ack_sem) == -1)
+        {
+            if (errno == EINTR)
             {
-                pthread_mutex_lock(&restore_flag_mtx);
-                int waiting_now = restore_flag_waiting;
-                pthread_mutex_unlock(&restore_flag_mtx);
-                if (waiting_now >= expected_waiting)
-                {
-                    break;
-                }
-                sleep(1);
+                continue;
             }
+            ERR("sem_wait restore_ack_sem");
+        }
+    }
+    //Wrapper to restore the checkpoint
+    restore_checkpoint(real_source, real_target);
+    
+    //Unlocking the mutex to let other threads know that restore is done
+    pthread_mutex_lock(&restore_flag_mtx);
+    restore_flag_pending = 0;
+    pthread_mutex_unlock(&restore_flag_mtx);
 
-            restore_checkpoint(real_source, real_target);
-
-            pthread_mutex_lock(&restore_flag_mtx);
-            restore_flag_pending = 0;
-            pthread_mutex_unlock(&restore_flag_mtx);
-            while (1)
-            {
-                pthread_mutex_lock(&restore_flag_mtx);
-                int waiting_now = restore_flag_waiting;
-                pthread_mutex_unlock(&restore_flag_mtx);
-                if (waiting_now == 0)
-                {
-                    break;
-                }
-                sleep(1);
-            }
-            free(real_source);
-            free(real_target);
+    //Letting the semaphore go, so that the threads can start working again
+    for (int i = 0; i < expected_waiting; i++)
+    {
+        if (sem_post(&restore_release_sem) == -1)
+        {
+            ERR("sem_post restore_release_sem");
+        }
+    }
+    free(real_source);
+    free(real_target);
 }
+
+
+//Function to handle input from stdin
 void input_handler()
-{
+{   
     size_t z = 0;
     char* buff = NULL;
     int n = 0;
@@ -633,7 +649,7 @@ void input_handler()
             continue;
         }
 
-        char* tok = strtok(buff, " ");
+        char* tok = tokenizer(buff);
         if (tok == NULL)
         {
             printf("Invalid syntax\n");
@@ -652,7 +668,7 @@ void input_handler()
         // input in the form end <source path> <target path> with multiple target paths
         else if (strcmp(tok, "end") == 0)
         {
-            tok = strtok(NULL, " ");
+            tok = tokenizer(NULL);
             if (tok == NULL)
             {
                 puts("Invalid syntax\n");
@@ -661,6 +677,7 @@ void input_handler()
 
             end(tok);
         }
+        // input in the form restore <source path> <target path> with singular target path
         else if (strcmp(tok, "restore") == 0)
         {   
            restore(tok);
@@ -689,10 +706,28 @@ void input_handler()
 
 int main()
 {
+    block_all_signals();
+    if (sem_init(&restore_ack_sem, 0, 0) == -1)
+    {
+        ERR("sem_init restore_ack_sem");
+    }
+    if (sem_init(&restore_release_sem, 0, 0) == -1)
+    {
+        ERR("sem_init restore_release_sem");
+    }
     init_lists();
     sethandler(sig_handler, SIGTERM);
     sethandler(sig_handler, SIGINT);
+    unblock_sigint_sigterm();
 
     input_handler();
+    if (sem_destroy(&restore_ack_sem) == -1)
+    {
+        ERR("sem_destroy restore_ack_sem");
+    }
+    if (sem_destroy(&restore_release_sem) == -1)
+    {
+        ERR("sem_destroy restore_release_sem");
+    }
     return 0;
 }

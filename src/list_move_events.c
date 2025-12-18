@@ -47,7 +47,7 @@ void delete_node(M_list* l, M_node * current){
             
 
 }
-
+//helper function for a completed move - just move the corresponding files/directories in the target
 static void handle_completed_move(M_list* l, M_node* node, node_sc* source)
 {
     if (node == NULL || source == NULL)
@@ -57,40 +57,50 @@ static void handle_completed_move(M_list* l, M_node* node, node_sc* source)
 
     char* suf_to = get_end_suffix(source->source_full, node->move_to);
     char* suf_from = get_end_suffix(source->source_full, node->move_from);
+
     for_each_target_path(source, suf_to, move_all, suf_from);
     free(suf_from);
     free(suf_to);
     delete_node(l, node);
 }
-
+//helper function to delete a node after a timeout
 static void handle_expired_node(M_list* l, M_node* current, node_sc* source)
-{
+{   
     if (current == NULL || source == NULL)
     {
         delete_node(l, current);
         return;
     }
+    
+    //Check what we have to do for this incomlplete move
 
+    //File came from out of the watched directory
     if (current->move_from == NULL && current->move_to != NULL)
     {
         char* suf_to = get_end_suffix(source->source_full, current->move_to);
         struct stat st;
+        //If the file already doesnt exist - we have nothing to do (the delete event will handle it)
         if (lstat(current->move_to, &st) == -1)
         {
             free(suf_to);
             delete_node(l, current);
             return;
         }
+        //If it is a file - we have to copy it to all targets
         if (!S_ISDIR(st.st_mode))
         {
             for_each_target_path(source, suf_to, copy_files, current->move_to);
         }
+        //
         else
         {
             new_folder_init(source, current->move_to);
         }
+
         free(suf_to);
     }
+
+    //File came out of the directory
     else if (current->move_to == NULL && current->move_from != NULL)
     {
         char* suf_from = get_end_suffix(source->source_full, current->move_from);
@@ -101,6 +111,7 @@ static void handle_expired_node(M_list* l, M_node* current, node_sc* source)
     delete_node(l, current);
 }
 
+//adding a new event
 void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, node_sc* source)
 {
     if (l == NULL || path == NULL || source == NULL)
@@ -113,12 +124,16 @@ void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, n
 
     pthread_mutex_lock(&l->mtx);
     M_node* current = l->head;
+
+    //Searching for the corresponding event
     while (current != NULL)
     {
         M_node* next = current->next;
 
+        //if it is found
         if (current->cookie == cookie)
-        {
+        {   
+
             char** target_field = is_from ? &current->move_from : &current->move_to;
             if (*target_field == NULL)
             {
@@ -130,13 +145,14 @@ void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, n
                 }
             }
             current->token = current_time;
-
+            // If the move got completed, we can handle it by moving the files correspodingly
             if (current->move_from != NULL && current->move_to != NULL)
             {
                 handle_completed_move(l, current, source);
             }
             matched = 1;
         }
+        //Node expiration
         else if (difftime(current_time, current->token) > MOV_TIME)
         {
             handle_expired_node(l, current, source);
@@ -144,13 +160,14 @@ void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, n
 
         current = next;
     }
-
+    //if we have found our match, we dont add an event, we can return
     if (matched)
     {
         pthread_mutex_unlock(&l->mtx);
         return;
     }
 
+    //else we are adding a new node
     M_node* new_node = malloc(sizeof(M_node));
     if (new_node == NULL)
     {
@@ -164,6 +181,7 @@ void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, n
     new_node->token = current_time;
     new_node->next = NULL;
 
+    //throw on error
     if ((is_from && new_node->move_from == NULL) || (!is_from && new_node->move_to == NULL))
     {
         free(new_node->move_from);
@@ -189,6 +207,7 @@ void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, n
     pthread_mutex_unlock(&l->mtx);
 }
 
+//Function to check the move event list for expirations. Useful in case we dont get any move events for a long time
 void check_move_events_list(M_list* l, node_sc * source)
 {
     if (l == NULL)

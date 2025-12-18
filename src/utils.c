@@ -111,3 +111,78 @@ char* get_end_suffix(const char* base, const char* full)
     }
     return result;
 }
+
+char* _tok;
+int pos;
+int len;
+
+char* tokenizer(char* tok)
+{
+    if (tok != NULL)
+    {
+        free(_tok);
+        _tok = strdup(tok);
+        len = strlen(tok);
+        pos = 0;
+    }
+    int type = -1;
+    int starti = pos;
+
+    for (int i = pos; i < len; i++)
+    {
+        if (type == -1)
+        {
+            if (_tok[i] == '\"')
+            {
+                type = 1;
+                starti = i + 1;
+                continue;
+            }
+            else if (_tok[i] != ' ')
+            {
+                type = 0;
+                starti = i;
+            }
+        }
+        if (type == 1)
+        {
+            if (i < len - 1)
+            {
+                if (_tok[i] == '\"' && _tok[i + 1] == ' ')
+                {
+                    type = -1;
+                    _tok[i] = '\0';
+                    pos = i + 1;
+                    return _tok + starti;
+                }
+            }
+            else if (_tok[i] == '\"')
+            {
+                type = -1;
+                _tok[i] = '\0';
+                pos = i + 1;
+                return _tok + starti;
+            }
+        }
+        else if (type == 0)
+        {
+            if (i < len - 1)
+            {
+                if (_tok[i] != ' ' && _tok[i + 1] == ' ')
+                {
+                    type = -1;
+                    _tok[i + 1] = '\0';
+                    pos = i + 2;
+                    return _tok + starti;
+                }
+            }
+            else
+            {
+                type = -1;
+                pos = i + 1;
+                return _tok + starti;
+            }
+        }
+    }
+    return NULL;
+}
