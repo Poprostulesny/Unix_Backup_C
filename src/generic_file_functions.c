@@ -19,8 +19,7 @@
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #endif
 
-void backup_ctx_lock(void) {}
-void backup_ctx_unlock(void) {}
+
 
 
 void checked_mkdir(const char* path)

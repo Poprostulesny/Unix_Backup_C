@@ -23,8 +23,6 @@ extern char* _source;
 extern char* _source_friendly;
 extern char* _target;
 /*-------------------*/
-void backup_ctx_lock(void);
-void backup_ctx_unlock(void);
 
 void checked_mkdir(const char* path);
 void make_path(char* path);
