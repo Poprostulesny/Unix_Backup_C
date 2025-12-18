@@ -21,7 +21,7 @@
 #include "utils.h"
 
 #ifndef DEBUG
-#define DEBUG
+// #define DEBUG
 #endif
 
 #ifndef ERR

@@ -26,7 +26,7 @@
 #include "lists_common.h"
 
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
-#define DEBUG
+// #define DEBUG
 
 volatile sig_atomic_t finish_work_flag = 0;
 volatile sig_atomic_t restore_expected = 0;
@@ -138,10 +138,12 @@ void child_loop(node_sc* source_node, node_tr* target_node)
     {
         if (child_pause_requested && !child_ack_sent)
         {
+            #ifdef DEBUG
             if (child_target_name != NULL)
             {
                 fprintf(stderr, "[DEBUG] child '%s' paused for restore\n", child_target_name);
             }
+            #endif
             kill(getppid(), SIGUSR1);
             child_ack_sent = 1;
         }
@@ -155,11 +157,12 @@ void child_loop(node_sc* source_node, node_tr* target_node)
             continue;
         }
         child_ack_sent = 0;
+        #ifdef DEBUG
         if (child_target_name != NULL)
         {
             fprintf(stderr, "[DEBUG] child '%s' resumed after restore\n", child_target_name);
         }
-
+        #endif
         inotify_jobs(source_node, target_node);
 
         if (child_should_exit)
@@ -395,6 +398,10 @@ void list_sources_and_targets()
 {
     list_sc* l = &backups;
     node_sc* current = l->head;
+    if(current==NULL){
+        printf("No sources to show\n");
+        return;
+    }
     while (current != NULL)
     {
         printf("Source: '%s', real path: '%s' ,", current->source_friendly, current->source_full);
@@ -433,10 +440,7 @@ void stop_all_backups(void)
     finish_work_flag = 1;
     kill(-getpid(), SIGUSR2);
 
-    while (wait(NULL) > 0)
-    {
-        ;
-    }
+    
     child_count = 0;
     delete_backups_list();
 }
@@ -521,7 +525,8 @@ void restore(char* tok)
     // Checking whether given sources exist
     char* real_source = realpath(source_tok, NULL);
     if (real_source == NULL)
-    {
+    {   
+         //if not create it
         if (errno == ENOENT)
         {
             make_path(source_tok);
@@ -542,9 +547,12 @@ void restore(char* tok)
             return;
         }
     }
+    // Checking whether given tarfet exists
     char* real_target = realpath(target_tok, NULL);
     if (real_target == NULL)
-    {
+    {   
+
+        //if not create it
         if (errno == ENOENT)
         {
             make_path(target_tok);
@@ -566,48 +574,39 @@ void restore(char* tok)
         }
     }
 
+    //waiting for children to stop working
     int expected_waiting = child_count;
     restore_expected = expected_waiting;
     restore_received = 0;
     if (expected_waiting > 0)
-    {
+    {   
+        //unblocking sigusr1 
         sigset_t set, old;
         sigemptyset(&set);
         sigaddset(&set, SIGUSR1);
-        sigaddset(&set, SIGCHLD);
         if (sigprocmask(SIG_BLOCK, &set, &old) == -1)
         {
             ERR("sigprocmask block usr1");
         }
+
         // broadcast pause to all in our process group
         kill(-getpid(), SIGUSR1);
+
+        //wait for them to send us a signal
+        sigset_t suspend_mask;
+        sigfillset(&suspend_mask);
+        sigdelset(&suspend_mask, SIGUSR1);
         while (restore_received < restore_expected)
         {
-            siginfo_t info;
-            int ret = sigwaitinfo(&set, &info);
-            if (ret == -1)
-            {
-                if (errno == EINTR)
-                {
-                    continue;
-                }
-                ERR("sigwaitinfo");
-            }
-            if (info.si_pid != getpid())
-            {
-                restore_received++;
-            }
-            if (info.si_signo == SIGCHLD)
-            {
-                waitpid(-1, NULL, WNOHANG);
-            }
-            sleep(1);
+            sigsuspend(&suspend_mask);
         }
+        //restore the previous mask
         if (sigprocmask(SIG_SETMASK, &old, NULL) == -1)
         {
             ERR("sigprocmask restore");
         }
     }
+
     // Wrapper to restore the checkpoint
     restore_checkpoint(real_source, real_target);
 

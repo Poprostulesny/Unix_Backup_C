@@ -1,6 +1,6 @@
 
 #ifndef DEBUG
-#define DEBUG
+// #define DEBUG
 #endif
 
 #ifndef GENERIC_FILE_FUNCTIONS_H
