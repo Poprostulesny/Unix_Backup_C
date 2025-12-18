@@ -1,6 +1,6 @@
 
 #ifndef DEBUG
-#define DEBUG
+// #define DEBUG
 #endif
 
 #ifndef GENERIC_FILE_FUNCTIONS_H
@@ -22,7 +22,6 @@
 extern char* _source;
 extern char* _source_friendly;
 extern char* _target;
-extern node_sc * _source_node;
 /*-------------------*/
 void backup_ctx_lock(void);
 void backup_ctx_unlock(void);
@@ -41,7 +40,6 @@ int deleter(const char* path, const struct stat* s, int flag, struct FTW* ftw);
 // recursively deletes all files in a given directory
 void recursive_deleter(char* path);
 void del_handling(const char* dest_path);
-void for_each_target_path(node_sc* source_node, const char* suffix, void (*f)(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx), void* ctx);
 void create_empty_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx);
 void copy_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx);
 void attribs(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx);

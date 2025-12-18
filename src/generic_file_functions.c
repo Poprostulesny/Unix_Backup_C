@@ -6,7 +6,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <ftw.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,36 +19,9 @@
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #endif
 
-/* defined here, declared in header */
-node_sc* _source_node;
-static pthread_mutex_t backup_ctx_mtx;
-static pthread_once_t backup_ctx_once = PTHREAD_ONCE_INIT;
+void backup_ctx_lock(void) {}
+void backup_ctx_unlock(void) {}
 
-static void backup_ctx_init(void)
-{
-    pthread_mutexattr_t attr;
-    if (pthread_mutexattr_init(&attr) != 0)
-    {
-        ERR("pthread_mutexattr_init");
-    }
-    if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE) != 0)
-    {
-        ERR("pthread_mutexattr_settype");
-    }
-    if (pthread_mutex_init(&backup_ctx_mtx, &attr) != 0)
-    {
-        ERR("pthread_mutex_init");
-    }
-    pthread_mutexattr_destroy(&attr);
-}
-
-void backup_ctx_lock(void)
-{
-    pthread_once(&backup_ctx_once, backup_ctx_init);
-    pthread_mutex_lock(&backup_ctx_mtx);
-}
-
-void backup_ctx_unlock(void) { pthread_mutex_unlock(&backup_ctx_mtx); }
 
 void checked_mkdir(const char* path)
 {
@@ -287,15 +259,18 @@ void copy_link(const char* path_where, const char* path_dest)
 #ifdef DEBUG
     printf("Copying symlink %s to %s\n", path_where, path_dest);
 #endif
+
     struct stat st;
     if (lstat(path_where, &st) == -1)
     {
         ERR("lstat");
     }
+
     if (unlink(path_dest) == -1 && errno != ENOENT)
     {
         ERR("unlink");
     }
+
     char buff[1024];
     ssize_t l = readlink(path_where, buff, sizeof(buff) - 1);
     if (l < 0)
@@ -344,7 +319,7 @@ void copy(const char* source, const char* dest, char* backup_source, char* backu
         }
     }
 
-    backup_ctx_lock();
+  
     if (S_ISLNK(st.st_mode))
     {
         _source = backup_source;
@@ -357,47 +332,12 @@ void copy(const char* source, const char* dest, char* backup_source, char* backu
     {
         copy_file(source, dest);
     }
-    backup_ctx_unlock();
-}
-
-/*
-
-    INOTIFY-SHARED HELPERS
-
-*/
-// template function for all operations for all paths
-void for_each_target_path(node_sc* source_node, const char* suffix,
-                          void (*f)(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx), void* ctx)
-{
-    
-    if (source_node == NULL || f == NULL)
-    {
-        return;
-    }
-
-    const char* safe_suffix = (suffix != NULL) ? suffix : "";
-
-    pthread_mutex_lock(&source_node->targets.mtx);
-    node_tr* current = source_node->targets.head;
-    while (current != NULL)
-    {
-        char* dest_path = concat(2, current->target_full, safe_suffix);
-        if (dest_path == NULL)
-        {
-            current = current->next;
-            continue;
-        }
-        f(dest_path, current, source_node, ctx);
-        free(dest_path);
-        current = current->next;
-    }
-    pthread_mutex_unlock(&source_node->targets.mtx);
+  
 }
 
 void create_empty_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
 {
     (void)target;
-    (void)source_node;
     const char* src_path = (const char*)ctx;
     int write_fd = open(dest_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (write_fd < 0)
@@ -417,17 +357,16 @@ void create_empty_files(const char* dest_path, node_tr* target, node_sc* source_
 void copy_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
 {
     const char* source_path = (const char*)ctx;
-    if (source_path == NULL || source_node == NULL)
+    if (source_path == NULL)
     {
         return;
     }
-    copy(source_path, dest_path, source_node->source_full, target->target_full);
+    copy(source_path, dest_path, NULL, target->target_full);
 }
 
 void attribs(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
 {
     (void)target;
-    (void)source_node;
     const char* src_path = (const char*)ctx;
     copy_permissions_and_attributes(src_path, dest_path);
 }
@@ -435,9 +374,6 @@ void attribs(const char* dest_path, node_tr* target, node_sc* source_node, void*
 // helper for recursive_deleter
 int deleter(const char* path, const struct stat* s, int flag, struct FTW* ftw)
 {
-    (void)s;
-    (void)flag;
-    (void)ftw;
     if (remove(path) == -1)
     {
         if (errno != ENOENT)
@@ -491,14 +427,13 @@ void del_handling(const char* dest_path)
 void delete_multi(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
 {
     (void)target;
-    (void)source_node;
     (void)ctx;
     del_handling(dest_path);
 }
 
 void move_all(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
 {
-    if (dest_path == NULL || target == NULL || source_node == NULL || ctx == NULL)
+    if (dest_path == NULL || target == NULL || ctx == NULL)
     {
         return;
     }
@@ -525,7 +460,7 @@ void move_all(const char* dest_path, node_tr* target, node_sc* source_node, void
 
     if (errno == EXDEV)
     {
-        copy(src_path, dest_path, source_node->source_full, target->target_full);
+        copy(src_path, dest_path, NULL, target->target_full);
         del_handling(src_path);
         free(src_path);
         return;
@@ -543,7 +478,7 @@ void move_all(const char* dest_path, node_tr* target, node_sc* source_node, void
 
 int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ftw)
 {
-    backup_ctx_lock();
+ 
     char* path_new = get_path_to_target(_source, _target, path);
     if (path_new == NULL)
     {
@@ -555,15 +490,13 @@ int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ft
     }
     else if (flag == FTW_F)
     {
-        char* suf = get_end_suffix(_source, path);
-        for_each_target_path(_source_node, suf, copy_files, (void*)path);
-        free(suf);
+        copy(path, path_new, _source, _target);
     }
     else if (flag == FTW_SL)
     {
         copy_link(path, path_new);
     }
     free(path_new);
-    backup_ctx_unlock();
+
     return 0;
 }

@@ -5,8 +5,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <ftw.h>
-#include <pthread.h>
-#include <semaphore.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,30 +12,26 @@
 #include <sys/inotify.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
-#include "utils.h"
 #include "generic_file_functions.h"
-#include "restore.h"
 #include "inotify_functions.h"
+#include "restore.h"
+#include "utils.h"
 
-
-#include "lists_common.h"
-#include "list_targets.h"
-#include "list_sources.h"
-#include "list_init_backup.h"
 #include "list_move_events.h"
+#include "list_sources.h"
+#include "list_targets.h"
+#include "lists_common.h"
 
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
-#define DEBUG
+// #define DEBUG
 
-volatile __sig_atomic_t finish_work_flag = 0;
-volatile __sig_atomic_t restore_flag_pending = 0;
-static pthread_mutex_t restore_flag_mtx = PTHREAD_MUTEX_INITIALIZER;
-//Acknowledgements from worker threads
-static sem_t restore_ack_sem;
-//Releasing of worker threads
-static sem_t restore_release_sem;
+volatile sig_atomic_t finish_work_flag = 0;
+volatile sig_atomic_t restore_expected = 0;
+volatile sig_atomic_t restore_received = 0;
+volatile sig_atomic_t child_count = 0;
 
 /* GLOBAL VARIABLES */
 char* _source;
@@ -46,11 +40,13 @@ char* _target;
 
 /*-------------------*/
 
-void* backup_handler(void* arg);
-static void stop_all_backups(void);
-static void block_all_signals(void);
-static void unblock_sigint_sigterm(void);
-
+void stop_all_backups(void);
+void block_all_signals(void);
+void unblock_sigint_sigterm(void);
+void spawn_child_for_target(node_sc* source_node, node_tr* target_node);
+void child_loop(node_sc* source_node, node_tr* target_node);
+void handle_end_for_target(node_sc* source_node, node_tr* target_node);
+void inotify_jobs(node_sc* source_node, node_tr* target_node);
 
 void sethandler(void (*f)(int), int sigNo)
 {
@@ -61,40 +57,156 @@ void sethandler(void (*f)(int), int sigNo)
     if (-1 == sigaction(sigNo, &act, NULL))
         ERR("sigaction");
 }
-void sig_handler(int sig)
+void sig_handler(int sig) { finish_work_flag = 1; }
+
+void sigusr1_parent(int sig)
 {
-    finish_work_flag=1;
+    (void)sig;
+    restore_received++;
 }
 
+volatile sig_atomic_t child_pause_requested = 0;
+volatile sig_atomic_t child_ack_sent = 0;
+volatile sig_atomic_t child_should_exit = 0;
+const char* child_target_name = NULL;
 
-static void block_all_signals()
+void sigusr1_child(int sig)
+{
+    (void)sig;
+    child_pause_requested ^= 1;
+}
+
+void sigusr2_child(int sig)
+{
+    (void)sig;
+    child_should_exit = 1;
+}
+
+void block_all_signals()
 {
     sigset_t set;
     if (sigfillset(&set) == -1)
     {
         ERR("sigfillset");
     }
-    if (pthread_sigmask(SIG_BLOCK, &set, NULL) != 0)
+    if (sigprocmask(SIG_BLOCK, &set, NULL) == -1)
     {
-        ERR("pthread_sigmask block all");
+        ERR("sigprocmask block all");
     }
 }
 
-static void unblock_sigint_sigterm()
+void unblock_sigint_sigterm()
 {
     sigset_t set;
     if (sigemptyset(&set) == -1)
     {
         ERR("sigemptyset");
     }
-    if (sigaddset(&set, SIGINT) == -1 || sigaddset(&set, SIGTERM) == -1)
+    if (sigaddset(&set, SIGINT) == -1 || sigaddset(&set, SIGTERM) == -1 || sigaddset(&set, SIGUSR1) == -1)
     {
         ERR("sigaddset");
     }
-    if (pthread_sigmask(SIG_UNBLOCK, &set, NULL) != 0)
+    if (sigprocmask(SIG_UNBLOCK, &set, NULL) == -1)
     {
-        ERR("pthread_sigmask unblock");
+        ERR("sigprocmask unblock");
     }
+}
+
+void child_loop(node_sc* source_node, node_tr* target_node)
+{
+    block_all_signals();
+    sethandler(sigusr1_child, SIGUSR1);
+    sethandler(sigusr2_child, SIGUSR2);
+    sigset_t child_unblock;
+    if (sigemptyset(&child_unblock) == -1)
+    {
+        ERR("sigemptyset child");
+    }
+    if (sigaddset(&child_unblock, SIGUSR1) == -1 || sigaddset(&child_unblock, SIGUSR2) == -1)
+    {
+        ERR("sigaddset child");
+    }
+    if (sigprocmask(SIG_UNBLOCK, &child_unblock, NULL) == -1)
+    {
+        ERR("sigprocmask child unblock");
+    }
+
+    child_target_name = target_node->target_friendly;
+    initial_backup(source_node, target_node);
+
+    while (!child_should_exit)
+    {
+        if (child_pause_requested && !child_ack_sent)
+        {
+            #ifdef DEBUG
+            if (child_target_name != NULL)
+            {
+                fprintf(stderr, "[DEBUG] child '%s' paused for restore\n", child_target_name);
+            }
+            #endif
+            kill(getppid(), SIGUSR1);
+            child_ack_sent = 1;
+        }
+        if (child_pause_requested)
+        {
+            sigset_t pause_mask;
+            sigfillset(&pause_mask);
+            sigdelset(&pause_mask, SIGUSR1);
+            sigdelset(&pause_mask, SIGUSR2);
+            sigsuspend(&pause_mask);
+            continue;
+        }
+        child_ack_sent = 0;
+        #ifdef DEBUG
+        if (child_target_name != NULL)
+        {
+            fprintf(stderr, "[DEBUG] child '%s' resumed after restore\n", child_target_name);
+        }
+        #endif
+        inotify_jobs(source_node, target_node);
+
+        if (child_should_exit)
+        {
+            break;
+        }
+        sleep(1);
+    }
+    delete_target_node(target_node);
+    _exit(EXIT_SUCCESS);
+}
+
+void spawn_child_for_target(node_sc* source_node, node_tr* target_node)
+{
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        ERR("fork");
+    }
+    if (pid == 0)
+    {
+        child_loop(source_node, target_node);
+    }
+    if (setpgid(pid, getpid()) == -1)
+    {
+        ERR("setpgid");
+    }
+    target_node->child_pid = pid;
+    child_count++;
+}
+
+void handle_end_for_target(node_sc* source_node, node_tr* target_node)
+{
+    if (target_node == NULL || source_node == NULL)
+    {
+        return;
+    }
+    if (target_node->child_pid > 0)
+    {
+        kill(target_node->child_pid, SIGUSR2);
+        waitpid(target_node->child_pid, NULL, 0);
+        child_count--;
+    }
+    list_target_delete(&source_node->targets, target_node->target_friendly);
 }
 
 /*
@@ -175,19 +287,19 @@ int parse_targets(node_sc* to_add)
 
         // Add to the list
         list_target_add(&to_add->targets, new_node);
-        init_backup_add_job(&to_add->init_jobs, to_add->source_full, to_add->source_friendly, new_node->target_full);
-        #ifdef DEBUG  
+        spawn_child_for_target(to_add, new_node);
+#ifdef DEBUG
         printf("Full source: '%s', friendly: '%s'\n", to_add->source_full, to_add->source_friendly);
-        
-        #endif
-         cnt++;
+
+#endif
+        cnt++;
         tok = tokenizer(NULL);
         free(real_tok);
     }
-    #ifdef DEBUG
-         puts("Finished parsing targets");
-    #endif
-  
+#ifdef DEBUG
+    puts("Finished parsing targets");
+#endif
+
     return cnt;
 }
 
@@ -208,6 +320,7 @@ int take_input()
     if (find_element_by_target(tok) == 1)
     {
         printf("Source is a target of a different backup operation.\n");
+        free(source_full);
         return 0;
     }
 
@@ -234,43 +347,10 @@ int take_input()
         source_elem->targets.head = NULL;
         source_elem->targets.tail = NULL;
         source_elem->targets.size = 0;
-        if (pthread_mutex_init(&source_elem->targets.mtx, NULL) != 0)
-        {
-            ERR("pthread_mutex_init targets");
-        }
-        source_elem->watchers.head = NULL;
-        source_elem->watchers.tail = NULL;
-        source_elem->watchers.size = -1;
-        memset(&source_elem->watchers.mtx, 0, sizeof(pthread_mutex_t));
-
-        source_elem->events.head = NULL;
-        source_elem->events.tail = NULL;
-        source_elem->events.size = -1;
-        memset(&source_elem->events.mtx, 0, sizeof(pthread_mutex_t));
-
-        source_elem->mov_dict.head = NULL;
-        source_elem->mov_dict.tail = NULL;
-        source_elem->mov_dict.size = -1;
-        memset(&source_elem->mov_dict.mtx, 0, sizeof(pthread_mutex_t));
-        source_elem->init_jobs.head = NULL;
-        source_elem->init_jobs.tail = NULL;
-        source_elem->init_jobs.size = 0;
-        if (pthread_mutex_init(&source_elem->init_jobs.mtx, NULL) != 0)
-        {
-            ERR("pthread_mutex_init init_jobs");
-        }
-        if (pthread_mutex_init(&source_elem->stop_mtx, NULL) != 0)
-        {
-            ERR("pthread_mutex_init stop");
-        }
-        source_elem->fd = -1;
-        source_elem->stop_thread = 0;
-        source_elem->thread = 0;
         was_source_added = 1;
-        #ifdef DEBUG
-         fprintf(stderr, "NEW node_sc %p, source='%s'\n", (void*)source_elem, source_elem->source_full);
-    #endif
-      
+#ifdef DEBUG
+        fprintf(stderr, "NEW node_sc %p, source='%s'\n", (void*)source_elem, source_elem->source_full);
+#endif
     }
 
     // Parsing the list of targets
@@ -281,21 +361,17 @@ int take_input()
     if (cnt > 0 && was_source_added)
     {
         list_source_add(source_elem);
-        if (pthread_create(&source_elem->thread, NULL, backup_handler, source_elem) != 0)
-        {
-            ERR("pthread_create backup");
-        }
     }
-    // If the lenght of list of our target is zero delete it
+    // If the length of list of our target is zero delete it
     else if (source_elem->targets.size == 0)
     {
         delete_source_node(source_elem);
     }
 
     free(source_full);
-    #ifdef DEBUG
-           puts("Finished taking input");
-    #endif
+#ifdef DEBUG
+    puts("Finished taking input");
+#endif
 
     return 1;
 }
@@ -308,12 +384,12 @@ LIST
 
 */
 void print_targets(list_tg* l)
-{   
+{
     printf("amount of targets: %d\n", l->size);
 
     node_tr* current = l->head;
     while (current != NULL)
-    {   
+    {
         printf("    Target: '%s'  real path: '%s' \n", current->target_friendly, current->target_full);
         current = current->next;
     }
@@ -322,6 +398,10 @@ void list_sources_and_targets()
 {
     list_sc* l = &backups;
     node_sc* current = l->head;
+    if(current==NULL){
+        printf("No sources to show\n");
+        return;
+    }
     while (current != NULL)
     {
         printf("Source: '%s', real path: '%s' ,", current->source_friendly, current->source_full);
@@ -355,42 +435,13 @@ void delete_backups_list()
     backups.size = 0;
 }
 
-static void stop_all_backups(void)
+void stop_all_backups(void)
 {
-    finish_work_flag=1;
+    finish_work_flag = 1;
+    kill(-getpid(), SIGUSR2);
 
-    pthread_mutex_lock(&backups.mtx);
-    node_sc* cur = backups.head;
-    int count = backups.size;
-    node_sc** to_join = NULL;
-    if (count > 0)
-    {
-        to_join = malloc(sizeof(node_sc*) * count);
-        if (to_join == NULL)
-        {
-            pthread_mutex_unlock(&backups.mtx);
-            ERR("malloc");
-        }
-    }
-    int idx = 0;
-    while (cur != NULL)
-    {
-        pthread_mutex_lock(&cur->stop_mtx);
-        cur->stop_thread = 1;
-        pthread_mutex_unlock(&cur->stop_mtx);
-        if (to_join != NULL && idx < count)
-        {
-            to_join[idx++] = cur;
-        }
-        cur = cur->next;
-    }
-    pthread_mutex_unlock(&backups.mtx);
-
-    for (int i = 0; i < idx; i++)
-    {
-        pthread_join(to_join[i]->thread, NULL);
-    }
-    free(to_join);
+    
+    child_count = 0;
     delete_backups_list();
 }
 
@@ -417,12 +468,20 @@ void end(char* source_friendly)
     // For every target try to delete it from the list of targets
     int cnt = 0;
     while (tok != NULL)
-    {   
-        #ifdef DEBUG
-       fprintf(stderr, "Trying to delete %s \n", tok);
-    #endif
-        
-        list_target_delete(&node_found->targets, tok);
+    {
+        node_tr* cur = node_found->targets.head;
+        while (cur != NULL && strcmp(cur->target_friendly, tok) != 0)
+        {
+            cur = cur->next;
+        }
+        if (cur != NULL)
+        {
+            handle_end_for_target(node_found, cur);
+        }
+        else
+        {
+            printf("Target not found: %s\n", tok);
+        }
         cnt++;
         tok = tokenizer(NULL);
     }
@@ -435,118 +494,44 @@ void end(char* source_friendly)
     // If we have deleted all targets from the source node then we can remove it
     if (node_found->targets.size == 0)
     {
-        pthread_mutex_lock(&node_found->stop_mtx);
-        node_found->stop_thread = 1;
-        pthread_mutex_unlock(&node_found->stop_mtx);
-        pthread_join(node_found->thread, NULL);
         list_source_delete(source_friendly);
     }
 }
 
-//Function to handle inotify events per source node
-void inotify_jobs(node_sc* source_node){
-    if (source_node == NULL)
+// Function to handle inotify events per source node
+void inotify_jobs(node_sc* source_node, node_tr* target_node)
+{
+    if (source_node == NULL || target_node == NULL)
     {
         return;
     }
-    if (source_node->fd < 0)
+    if (target_node->inotify_fd < 0)
     {
         return;
     }
-    inotify_reader(source_node->fd, &source_node->watchers, &source_node->events);
-    event_handler(source_node);
-    check_move_events_list(&source_node->mov_dict, source_node);
-}
-
-//Backup work takes a source node as an argument and performs backup operations
-void* backup_handler(void* arg)
-{   
-    block_all_signals();
-
-    node_sc * source = (node_sc*)(arg);
-    while (1)
-    {   
-        //Checking whether we need to stop the loop due to the restore flag(immediately)
-        int need_wait = 0;
-        pthread_mutex_lock(&restore_flag_mtx);
-        if (restore_flag_pending)
-        {
-            need_wait = 1;
-        }
-        pthread_mutex_unlock(&restore_flag_mtx);
-
-        if (need_wait)
-        {
-            if (sem_post(&restore_ack_sem) == -1)
-            {
-                ERR("sem_post restore_ack_sem");
-            }
-            while (sem_wait(&restore_release_sem) == -1)
-            {
-                if (errno == EINTR)
-                {
-                    continue;
-                }
-                ERR("sem_wait restore_release_sem");
-            }
-        }
-
-        // Doing initial backups for this source (if any are there)
-        Node_init* job = init_backup_pop_job(&source->init_jobs);
-        while (job != NULL)
-        {
-            initial_backup(source, job->source_friendly, job->target_full);
-            free(job->source_full);
-            free(job->source_friendly);
-            free(job->target_full);
-            free(job);
-            job = init_backup_pop_job(&source->init_jobs);
-        }
-        
-
-        //Wrapper function for both inotify jobs to do - reading inotify events and processing them
-        inotify_jobs(source);
-
-        
-
-    
-        //If we have finished all backups, then we check for signals to stop work
-        int stop_now = 0;
-        stop_now = finish_work_flag;
-        if (!stop_now)
-        {
-            pthread_mutex_lock(&source->stop_mtx);
-            stop_now = source->stop_thread;
-            pthread_mutex_unlock(&source->stop_mtx);
-        }
-
-        if (stop_now)
-        {
-            break;
-        }
-        //Sleeping 4s to wait for any new jobs to be added to the list. This amount can be arbitrary
-        sleep(4);
-
-    }
-
-    return NULL;
+    inotify_reader(target_node->inotify_fd, &target_node->watchers, &target_node->events);
+    event_handler(source_node, target_node);
+    check_move_events_list(&target_node->mov_dict, source_node, target_node);
 }
 
 // Function handling the restore request
-void restore(char * tok){
-
+void restore(char* tok)
+{
+    (void)tok;
 
     char* source_tok = tokenizer(NULL);
     char* target_tok = tokenizer(NULL);
-    
-    //Checking whether given sources exist
-    char * real_source = realpath(source_tok,NULL);
-    if(real_source==NULL){
+
+    // Checking whether given sources exist
+    char* real_source = realpath(source_tok, NULL);
+    if (real_source == NULL)
+    {   
+         //if not create it
         if (errno == ENOENT)
         {
             make_path(source_tok);
             checked_mkdir(source_tok);
-            real_source = realpath(source_tok,NULL);
+            real_source = realpath(source_tok, NULL);
             if (real_source == NULL)
             {
                 return;
@@ -561,16 +546,18 @@ void restore(char * tok){
             printf("Invalid input\n");
             return;
         }
-
     }
-    char * real_target = realpath(target_tok,NULL);
+    // Checking whether given tarfet exists
+    char* real_target = realpath(target_tok, NULL);
     if (real_target == NULL)
-    {
+    {   
+
+        //if not create it
         if (errno == ENOENT)
         {
             make_path(target_tok);
             checked_mkdir(target_tok);
-            real_target = realpath(target_tok,NULL);
+            real_target = realpath(target_tok, NULL);
             if (real_target == NULL)
             {
                 return;
@@ -587,50 +574,53 @@ void restore(char * tok){
         }
     }
 
-    //Setting flags to let other threads know that a restore is pending
-    pthread_mutex_lock(&restore_flag_mtx);
-    restore_flag_pending = 1;
-    pthread_mutex_unlock(&restore_flag_mtx);
-    pthread_mutex_lock(&backups.mtx);
-    int expected_waiting = backups.size;
-    pthread_mutex_unlock(&backups.mtx);
-
-    //Waiting for the semaphore to be released by all backup threads - confirmation that they got the signal
-    for (int i = 0; i < expected_waiting; i++)
-    {
-        while (sem_wait(&restore_ack_sem) == -1)
+    //waiting for children to stop working
+    int expected_waiting = child_count;
+    restore_expected = expected_waiting;
+    restore_received = 0;
+    if (expected_waiting > 0)
+    {   
+        //unblocking sigusr1 
+        sigset_t set, old;
+        sigemptyset(&set);
+        sigaddset(&set, SIGUSR1);
+        if (sigprocmask(SIG_BLOCK, &set, &old) == -1)
         {
-            if (errno == EINTR)
-            {
-                continue;
-            }
-            ERR("sem_wait restore_ack_sem");
+            ERR("sigprocmask block usr1");
+        }
+
+        // broadcast pause to all in our process group
+        kill(-getpid(), SIGUSR1);
+
+        //wait for them to send us a signal
+        sigset_t suspend_mask;
+        sigfillset(&suspend_mask);
+        sigdelset(&suspend_mask, SIGUSR1);
+        while (restore_received < restore_expected)
+        {
+            sigsuspend(&suspend_mask);
+        }
+        //restore the previous mask
+        if (sigprocmask(SIG_SETMASK, &old, NULL) == -1)
+        {
+            ERR("sigprocmask restore");
         }
     }
-    //Wrapper to restore the checkpoint
-    restore_checkpoint(real_source, real_target);
-    
-    //Unlocking the mutex to let other threads know that restore is done
-    pthread_mutex_lock(&restore_flag_mtx);
-    restore_flag_pending = 0;
-    pthread_mutex_unlock(&restore_flag_mtx);
 
-    //Letting the semaphore go, so that the threads can start working again
-    for (int i = 0; i < expected_waiting; i++)
+    // Wrapper to restore the checkpoint
+    restore_checkpoint(real_source, real_target);
+
+    if (expected_waiting > 0)
     {
-        if (sem_post(&restore_release_sem) == -1)
-        {
-            ERR("sem_post restore_release_sem");
-        }
+        kill(-getpid(), SIGUSR1);
     }
     free(real_source);
     free(real_target);
 }
 
-
-//Function to handle input from stdin
+// Function to handle input from stdin
 void input_handler()
-{   
+{
     size_t z = 0;
     char* buff = NULL;
     int n = 0;
@@ -645,7 +635,8 @@ void input_handler()
         {
             buff[n - 1] = '\0';
         }
-        if(buff[0]=='\0'){
+        if (buff[0] == '\0')
+        {
             continue;
         }
 
@@ -679,55 +670,36 @@ void input_handler()
         }
         // input in the form restore <source path> <target path> with singular target path
         else if (strcmp(tok, "restore") == 0)
-        {   
-           restore(tok);
+        {
+            restore(tok);
         }
         else if (strcmp(tok, "exit") == 0)
         {
-            stop_all_backups();
-            free(buff);
-            return;
+            break;
         }
         else if (strcmp(tok, "list") == 0)
         {
             list_sources_and_targets();
         }
     }
-    if (finish_work_flag && buff != NULL)
-    {
-        // fall through to cleanup with the same path as "exit"
-    }
 
     stop_all_backups();
     free(buff);
-    
 }
-
 
 int main()
 {
     block_all_signals();
-    if (sem_init(&restore_ack_sem, 0, 0) == -1)
-    {
-        ERR("sem_init restore_ack_sem");
-    }
-    if (sem_init(&restore_release_sem, 0, 0) == -1)
-    {
-        ERR("sem_init restore_release_sem");
-    }
     init_lists();
     sethandler(sig_handler, SIGTERM);
     sethandler(sig_handler, SIGINT);
+    sethandler(sigusr1_parent, SIGUSR1);
     unblock_sigint_sigterm();
 
     input_handler();
-    if (sem_destroy(&restore_ack_sem) == -1)
+    while (wait(NULL) > 0)
     {
-        ERR("sem_destroy restore_ack_sem");
-    }
-    if (sem_destroy(&restore_release_sem) == -1)
-    {
-        ERR("sem_destroy restore_release_sem");
+        ;
     }
     return 0;
 }
