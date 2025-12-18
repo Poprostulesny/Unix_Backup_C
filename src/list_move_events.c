@@ -7,7 +7,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 #include<sys/stat.h>
 #include <time.h>
 #include "generic_file_functions.h"
@@ -48,29 +47,33 @@ void delete_node(M_list* l, M_node * current){
 
 }
 //helper function for a completed move - just move the corresponding files/directories in the target
-static void handle_completed_move(M_list* l, M_node* node, node_sc* source)
+static void handle_completed_move(M_list* l, M_node* node, node_sc* source, node_tr* target)
 {
-    if (node == NULL || source == NULL)
+    if (node == NULL || source == NULL || target == NULL)
     {
         return;
     }
-
     char* suf_to = get_end_suffix(source->source_full, node->move_to);
     char* suf_from = get_end_suffix(source->source_full, node->move_from);
-
-    for_each_target_path(source, suf_to, move_all, suf_from);
+    char* dest_path = concat(2, target->target_full, suf_to != NULL ? suf_to : "");
+    if (dest_path != NULL)
+    {
+        move_all(dest_path, target, source, suf_from);
+        free(dest_path);
+    }
     free(suf_from);
     free(suf_to);
     delete_node(l, node);
 }
 //helper function to delete a node after a timeout
-static void handle_expired_node(M_list* l, M_node* current, node_sc* source)
+static void handle_expired_node(M_list* l, M_node* current, node_sc* source, node_tr* target)
 {   
-    if (current == NULL || source == NULL)
+    if (current == NULL || source == NULL || target == NULL)
     {
         delete_node(l, current);
         return;
     }
+  
     
     //Check what we have to do for this incomlplete move
 
@@ -89,12 +92,17 @@ static void handle_expired_node(M_list* l, M_node* current, node_sc* source)
         //If it is a file - we have to copy it to all targets
         if (!S_ISDIR(st.st_mode))
         {
-            for_each_target_path(source, suf_to, copy_files, current->move_to);
+            char* dest_path = concat(2, target->target_full, suf_to != NULL ? suf_to : "");
+            if (dest_path != NULL)
+            {
+                copy_files(dest_path, target, source, current->move_to);
+                free(dest_path);
+            }
         }
         //
         else
         {
-            new_folder_init(source, current->move_to);
+            new_folder_init(source, target, current->move_to);
         }
 
         free(suf_to);
@@ -104,7 +112,12 @@ static void handle_expired_node(M_list* l, M_node* current, node_sc* source)
     else if (current->move_to == NULL && current->move_from != NULL)
     {
         char* suf_from = get_end_suffix(source->source_full, current->move_from);
-        for_each_target_path(source, suf_from, delete_multi, NULL);
+        char* dest_path = concat(2, target->target_full, suf_from != NULL ? suf_from : "");
+        if (dest_path != NULL)
+        {
+            delete_multi(dest_path, target, source, NULL);
+            free(dest_path);
+        }
         free(suf_from);
     }
 
@@ -112,9 +125,9 @@ static void handle_expired_node(M_list* l, M_node* current, node_sc* source)
 }
 
 //adding a new event
-void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, node_sc* source)
+void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, node_sc* source, node_tr* target)
 {
-    if (l == NULL || path == NULL || source == NULL)
+    if (l == NULL || path == NULL || source == NULL || target == NULL)
     {
         return;
     }
@@ -122,7 +135,6 @@ void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, n
     time_t current_time = time(NULL);
     int matched = 0;
 
-    pthread_mutex_lock(&l->mtx);
     M_node* current = l->head;
 
     //Searching for the corresponding event
@@ -140,7 +152,6 @@ void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, n
                 *target_field = strdup(path);
                 if (*target_field == NULL)
                 {
-                    pthread_mutex_unlock(&l->mtx);
                     ERR("strdup");
                 }
             }
@@ -148,14 +159,14 @@ void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, n
             // If the move got completed, we can handle it by moving the files correspodingly
             if (current->move_from != NULL && current->move_to != NULL)
             {
-                handle_completed_move(l, current, source);
+                handle_completed_move(l, current, source, target);
             }
             matched = 1;
         }
         //Node expiration
         else if (difftime(current_time, current->token) > MOV_TIME)
         {
-            handle_expired_node(l, current, source);
+            handle_expired_node(l, current, source, target);
         }
 
         current = next;
@@ -163,7 +174,6 @@ void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, n
     //if we have found our match, we dont add an event, we can return
     if (matched)
     {
-        pthread_mutex_unlock(&l->mtx);
         return;
     }
 
@@ -171,7 +181,6 @@ void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, n
     M_node* new_node = malloc(sizeof(M_node));
     if (new_node == NULL)
     {
-        pthread_mutex_unlock(&l->mtx);
         ERR("malloc");
     }
 
@@ -187,7 +196,6 @@ void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, n
         free(new_node->move_from);
         free(new_node->move_to);
         free(new_node);
-        pthread_mutex_unlock(&l->mtx);
         ERR("strdup");
     }
 
@@ -204,21 +212,18 @@ void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, n
     l->tail = new_node;
     l->size++;
 
-    pthread_mutex_unlock(&l->mtx);
 }
 
 //Function to check the move event list for expirations. Useful in case we dont get any move events for a long time
-void check_move_events_list(M_list* l, node_sc * source)
+void check_move_events_list(M_list* l, node_sc * source, node_tr* target)
 {
-    if (l == NULL)
+    if (l == NULL || target == NULL)
     {
         return;
     }
 
     time_t current_time = time(NULL);
 
-    pthread_mutex_lock(&l->mtx);
-    
     M_node* current = l->head;
     while (current != NULL)
     {
@@ -226,11 +231,9 @@ void check_move_events_list(M_list* l, node_sc * source)
         
         if (difftime(current_time, current->token) > MOV_TIME)
         {
-            handle_expired_node(l, current, source);
+            handle_expired_node(l, current, source, target);
         }
 
         current = next;
     }
-    
-    pthread_mutex_unlock(&l->mtx);
 }

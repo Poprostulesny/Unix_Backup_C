@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 #include <sys/inotify.h>
 #include "list_inotify_events.h"
 #include "list_wd.h"
@@ -13,8 +12,6 @@
 #ifndef ERR
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #endif
-
-extern Ino_List inotify_events;
 
 void add_inotify_event(list_wd* wd_list, Ino_List* l, struct inotify_event *event)
 {
@@ -93,7 +90,6 @@ void add_inotify_event(list_wd* wd_list, Ino_List* l, struct inotify_event *even
 
     //adding the element
     new_node->next = NULL;
-    pthread_mutex_lock(&l->mtx);
     new_node->prev = l->tail;
 
     if (l->tail != NULL)
@@ -107,7 +103,6 @@ void add_inotify_event(list_wd* wd_list, Ino_List* l, struct inotify_event *even
 
     l->tail = new_node;
     l->size++;
-    pthread_mutex_unlock(&l->mtx);
 }
 
 void remove_inotify_event(Ino_List* l)
@@ -117,10 +112,8 @@ void remove_inotify_event(Ino_List* l)
         return;
     }
 
-    pthread_mutex_lock(&l->mtx);
     if (l->head == NULL)
     {
-        pthread_mutex_unlock(&l->mtx);
         return;
     }
     Ino_Node *removed = l->head;
@@ -134,7 +127,6 @@ void remove_inotify_event(Ino_List* l)
         l->tail = NULL;
     }
     l->size--;
-    pthread_mutex_unlock(&l->mtx);
     free(removed->name);
     free(removed->suffix);
     free(removed->full_path);

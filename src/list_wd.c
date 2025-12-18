@@ -4,14 +4,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 #include "list_wd.h"
 
 #ifndef ERR
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #endif
-
-extern list_wd wd_list;
 
 // Functions for wd list
 void delete_wd_node(list_wd* l, int wd)
@@ -20,7 +17,6 @@ void delete_wd_node(list_wd* l, int wd)
     {
         return;
     }
-    pthread_mutex_lock(&l->mtx);
     Node_wd* current = l->head;
     while (current != NULL)
     {
@@ -51,12 +47,10 @@ void delete_wd_node(list_wd* l, int wd)
                 free(current->suffix);
                 free(current);
             l->size--;
-            pthread_mutex_unlock(&l->mtx);
             return;
         }
         current = current->next;
     }
-    pthread_mutex_unlock(&l->mtx);
 }
 
 void add_wd_node(list_wd* l, int wd, char* source_friendly, char* source_full, const char* path, const char* suffix)
@@ -94,7 +88,6 @@ void add_wd_node(list_wd* l, int wd, char* source_friendly, char* source_full, c
         free(new_node);
         ERR("strdup");
     }
-    pthread_mutex_lock(&l->mtx);
     new_node->prev = l->tail;
 
     if (l->tail != NULL)
@@ -108,7 +101,6 @@ void add_wd_node(list_wd* l, int wd, char* source_friendly, char* source_full, c
 
     l->tail = new_node;
     l->size++;
-    pthread_mutex_unlock(&l->mtx);
 }
 
 Node_wd* find_element_by_wd(list_wd* l, int wd)
@@ -118,18 +110,14 @@ Node_wd* find_element_by_wd(list_wd* l, int wd)
         return NULL;
     }
 
-    pthread_mutex_lock(&l->mtx);
     Node_wd* current = l->head;
     while (current != NULL)
     {
         if (current->wd == wd)
         {
-            pthread_mutex_unlock(&l->mtx);
             return current;
         }
         current = current->next;
     }
-    pthread_mutex_unlock(&l->mtx);
     return NULL;
 }
-
