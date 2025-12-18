@@ -5,7 +5,7 @@ While checking this project you might see a lot of weird things, like:
 - functions which take more arguments than they need
 - seemingly pointless checks and overly complicated approaches.
 
-This all is due to the fact that firstly I wrote this project on threads(as i didn't see the fact that it has been on forks). That version had a lot of optimization and queueing of tasks. As well as having one inotify fd per source. After noticing my mistake I tried my best to rewrite it so that it uses forks, however some things remained, as it was too time consuming to rewrite it from scratch. However if you want to see(or grade if that approach is acceptable) the multithreaded version of which I am a lot more proud than of this, then you can find it at "https://github.com/Poprostulesny/Unix_backup_multithreaded". 
+This all is due to the fact that firstly I wrote this project on threads(as i didn't see the fact that it has been on forks). That version had a lot of optimization and queueing of tasks. As well as having one inotify fd per source. After noticing my mistake I tried my best to rewrite it so that it uses forks, however some things remained, as it was too time consuming to rewrite it from scratch. However if you want to see(or grade if that approach is acceptable) the multithreaded version of which I am a lot more proud than of this, then you can find it at "https://github.com/Poprostulesny/Unix_backup_multithreaded or in the multithreaded-version branch on this repo. 
 
 Sincerely, Mateusz Leśniczak.
 
