@@ -214,7 +214,7 @@ void copy_file(const char* path1, const char* path2)
 #endif
     free(dest_dir);
 
-
+    //opening file descriptors
     int read_fd = open(path1, O_RDONLY);
     int write_fd = open(path2, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
@@ -228,6 +228,8 @@ void copy_file(const char* path1, const char* path2)
     }
     char buff[1024];
     int r = 0;
+
+    //copying byte by byte
     while ((r = read(read_fd, buff, sizeof(buff))) > 0)
     {
         ssize_t offset = 0;
@@ -277,6 +279,7 @@ void copy_link(const char* path_where, const char* path_dest)
         ERR("readlink");
     }
     buff[l] = '\0';
+    //verification where does it go to 
     if (is_target_in_source(_source, buff) == 1)
     {
         char* path_updated = get_path_to_target(_source, _target, buff);
@@ -293,6 +296,7 @@ void copy_link(const char* path_where, const char* path_dest)
             ERR("symlink");
         }
     }
+    //ensuring it has the same mtime as the original
     struct timespec t[2];
     t[0] = st.st_atim;
     t[1] = st.st_mtim;
