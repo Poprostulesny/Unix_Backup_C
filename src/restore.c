@@ -117,7 +117,7 @@ void restore_checkpoint( char* source_path, char* target_path)
     _source_path = source_path;
     _target_path = target_path;
 
-    backup_ctx_lock();
+    
     _source = _target_path;
     _target = _source_path;
     nftw(_target_path, restorer, 1024, FTW_PHYS);
@@ -128,7 +128,7 @@ void restore_checkpoint( char* source_path, char* target_path)
     nftw(_source_path, delete_missing, 1024, FTW_DEPTH | FTW_PHYS);
     _source = NULL;
     _target = NULL;
-    backup_ctx_unlock();
+   
     _source_path = NULL;
     _target_path = NULL;
 
