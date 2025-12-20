@@ -59,6 +59,7 @@ void delete_target_node(node_tr* node)
         free(node->target_friendly);
         free(node->target_full);
         free(node);
+        
     }
 }
 

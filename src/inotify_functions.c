@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/inotify.h>
+#include <sys/signal.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include "generic_file_functions.h"
@@ -303,6 +304,7 @@ void event_handler(node_sc* source_node, node_tr* target_node)
         {
             debug_printer("IN_MOVED_FROM", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
             add_move_event(&target_node->mov_dict, event->cookie, event->full_path, 1, source_node, target_node);
+           
             // mapa cookiesow
             // dodajemy delikwenta
             // jezeli nie ma po MOV_TIME s drugiego eventu, usuwamy
@@ -334,16 +336,26 @@ void event_handler(node_sc* source_node, node_tr* target_node)
                 delete_multi(dest_path, target_node, source_node, NULL);
                 free(dest_path);
             }
+            if(strcmp(event->name, source_node->source_full)==0){
+                //usunmy całą liste
+                kill(getpid(), SIGUSR2);
+            }
+            
         }
         if (event->mask & IN_MOVE_SELF)
         {
             debug_printer("IN_MOVE_SELF", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
+            if(strcmp(event->name, source_node->source_full)==0){
+                //usunmy całą liste
+                kill(getpid(), SIGUSR2);
+            }
             // brak specjlnego handlingu move nam to ogarnia
         }
         if (event->mask & IN_IGNORED)
         {
             debug_printer("IN_IGNORED", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
             delete_wd_node(wd_list, event->wd);
+        
         }
 
         remove_inotify_event(inotify_events);
