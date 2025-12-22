@@ -1,3 +1,4 @@
+// clang-format off
 #ifndef LISTS_COMMON_H
 #define LISTS_COMMON_H
 #include <stdint.h>
@@ -127,3 +128,4 @@ extern list_sc backups;
 void init_lists(void);
 
 #endif /* LISTS_COMMON_H */
+// clang-format on

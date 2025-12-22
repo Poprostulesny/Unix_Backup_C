@@ -1,3 +1,4 @@
+// clang-format off
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 #include "list_inotify_events.h"
@@ -134,3 +135,4 @@ void remove_inotify_event(Ino_List *l)
     free(removed->full_path);
     free(removed);
 }
+// clang-format on

@@ -1,3 +1,4 @@
+// clang-format off
 #ifndef LIST_MOVE_EVENTS_H
 #define LIST_MOVE_EVENTS_H
 #include "inotify_functions.h"
@@ -14,3 +15,4 @@ void check_move_events_list(M_list *l, node_sc *source, node_tr *target);
 void delete_node(M_list *l, M_node *current);
 
 #endif /* LIST_MOVE_EVENTS_H */
+// clang-format on

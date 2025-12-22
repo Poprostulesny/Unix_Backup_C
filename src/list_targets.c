@@ -1,3 +1,4 @@
+// clang-format off
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 #include "list_targets.h"
@@ -163,3 +164,4 @@ int find_element_by_target_help(list_tg *l, char *target)
     }
     return 0;
 }
+// clang-format on

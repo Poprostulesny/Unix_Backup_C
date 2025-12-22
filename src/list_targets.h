@@ -1,3 +1,4 @@
+// clang-format off
 #ifndef LIST_TARGETS_H
 #define LIST_TARGETS_H
 #include "lists_common.h"
@@ -16,3 +17,4 @@ int list_target_delete(list_tg *l, char *target);
 int find_element_by_target_help(list_tg *l, char *target);
 
 #endif /* LIST_TARGETS_H */
+// clang-format on

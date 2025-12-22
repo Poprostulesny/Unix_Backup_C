@@ -1,3 +1,4 @@
+// clang-format off
 // src/inotify_functions.h
 #ifndef INOTIFY_FUNCTIONS_H
 #define INOTIFY_FUNCTIONS_H
@@ -25,3 +26,4 @@ void inotify_reader(int fd, list_wd *wd_list, Ino_List *inotify);
 void event_handler(node_sc *source_node, node_tr *target_node);
 
 #endif /* INOTIFY_FUNCTIONS_H */
+// clang-format on

@@ -1,3 +1,4 @@
+// clang-format off
 
 #ifndef DEBUG
 // #define DEBUG
@@ -43,3 +44,4 @@ void attribs(const char *dest_path, node_tr *target, node_sc *source_node, void 
 void delete_multi(const char *dest_path, node_tr *target, node_sc *source_node, void *ctx);
 void move_all(const char *dest_path, node_tr *target, node_sc *source_node, void *ctx);
 #endif /* GENERIC_FILE_FUNCTIONS_H */
+// clang-format on

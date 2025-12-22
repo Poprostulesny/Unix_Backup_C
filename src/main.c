@@ -1,3 +1,4 @@
+// clang-format off
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 #include <dirent.h>
@@ -15,12 +16,12 @@
 #include <unistd.h>
 #include "generic_file_functions.h"
 #include "inotify_functions.h"
-#include "restore.h"
-#include "utils.h"
 #include "list_move_events.h"
 #include "list_sources.h"
 #include "list_targets.h"
 #include "lists_common.h"
+#include "restore.h"
+#include "utils.h"
 
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 // #define DEBUG
@@ -819,3 +820,4 @@ int main()
     puts("Goodbye!");
     return 0;
 }
+// clang-format on

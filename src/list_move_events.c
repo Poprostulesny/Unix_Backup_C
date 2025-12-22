@@ -1,3 +1,4 @@
+// clang-format off
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 // How long in seconds will the values be held in mov buffer
@@ -233,3 +234,4 @@ void check_move_events_list(M_list *l, node_sc *source, node_tr *target)
         current = next;
     }
 }
+// clang-format on

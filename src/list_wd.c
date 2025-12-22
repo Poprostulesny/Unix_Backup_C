@@ -1,3 +1,4 @@
+// clang-format off
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 #include "list_wd.h"
@@ -120,3 +121,4 @@ Node_wd *find_element_by_wd(list_wd *l, int wd)
     }
     return NULL;
 }
+// clang-format on

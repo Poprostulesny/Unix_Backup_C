@@ -1,3 +1,4 @@
+// clang-format off
 #ifndef LIST_WD_H
 #define LIST_WD_H
 #include "lists_common.h"
@@ -13,3 +14,4 @@ void add_wd_node(list_wd *l, int wd, char *source_friendly, char *source_full, c
 Node_wd *find_element_by_wd(list_wd *l, int wd);
 
 #endif /* LIST_WD_H */
+// clang-format on

@@ -1,3 +1,4 @@
+// clang-format off
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 #include "utils.h"
@@ -194,3 +195,4 @@ char *tokenizer(char *tok)
     }
     return NULL;
 }
+// clang-format on

@@ -1,3 +1,4 @@
+// clang-format off
 #ifndef UTILS_H
 #define UTILS_H
 #include <stdarg.h>
@@ -8,3 +9,4 @@ char *concat(int n, ...);
 char *get_end_suffix(const char *base, const char *full);
 char *tokenizer(char *tok);
 #endif /* UTILS_H */
+// clang-format on

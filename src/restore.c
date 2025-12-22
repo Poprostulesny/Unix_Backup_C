@@ -1,3 +1,4 @@
+// clang-format off
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 #include "restore.h"
@@ -134,3 +135,4 @@ void restore_checkpoint(char *source_path, char *target_path)
     _source_path = NULL;
     _target_path = NULL;
 }
+// clang-format on

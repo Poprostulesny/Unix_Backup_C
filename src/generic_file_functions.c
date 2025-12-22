@@ -1,3 +1,4 @@
+// clang-format off
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 #include "generic_file_functions.h"
@@ -486,3 +487,4 @@ int backup_walk(const char *path, const struct stat *s, int flag, struct FTW *ft
 
     return 0;
 }
+// clang-format on

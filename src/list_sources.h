@@ -1,3 +1,4 @@
+// clang-format off
 #ifndef LIST_SOURCES_H
 #define LIST_SOURCES_H
 #include "list_targets.h"
@@ -22,3 +23,4 @@ node_sc *find_element_by_source(char *source);
 char *get_source_friendly(char *source_full);
 
 #endif /* LIST_SOURCES_H */
+// clang-format on

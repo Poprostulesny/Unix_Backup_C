@@ -1,3 +1,4 @@
+// clang-format off
 // src/inotify_functions.c
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
@@ -364,3 +365,4 @@ void event_handler(node_sc *source_node, node_tr *target_node)
         remove_inotify_event(inotify_events);
     }
 }
+// clang-format on

@@ -1,3 +1,4 @@
+// clang-format off
 #ifndef LIST_INOTIFY_EVENTS_H
 #define LIST_INOTIFY_EVENTS_H
 #include <sys/inotify.h>
@@ -10,3 +11,4 @@ void add_inotify_event(list_wd *wd_list, Ino_List *l, struct inotify_event *even
 void remove_inotify_event(Ino_List *l);
 
 #endif /* LIST_INOTIFY_EVENTS_H */
+// clang-format on

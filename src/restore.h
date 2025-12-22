@@ -1,3 +1,4 @@
+// clang-format off
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -12,3 +13,4 @@
 #include "lists_common.h"
 
 void restore_checkpoint(char *source_path, char *target_path);
+// clang-format on

@@ -1,3 +1,4 @@
+// clang-format off
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 #include <stdio.h>
@@ -17,3 +18,4 @@ void init_lists(void)
     backups.tail = NULL;
     backups.size = 0;
 }
+// clang-format on
