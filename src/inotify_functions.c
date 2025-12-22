@@ -336,17 +336,17 @@ void event_handler(node_sc* source_node, node_tr* target_node)
                 delete_multi(dest_path, target_node, source_node, NULL);
                 free(dest_path);
             }
-            if(strcmp(event->name, source_node->source_full)==0){
-                //usunmy całą liste
+            /* event->name is empty for IN_DELETE_SELF; compare full paths */
+            if (strcmp(event->full_path, source_node->source_full) == 0)
+            {
                 kill(getpid(), SIGUSR2);
             }
-            
         }
         if (event->mask & IN_MOVE_SELF)
         {
             debug_printer("IN_MOVE_SELF", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
-            if(strcmp(event->name, source_node->source_full)==0){
-                //usunmy całą liste
+            if (strcmp(event->full_path, source_node->source_full) == 0)
+            {
                 kill(getpid(), SIGUSR2);
             }
             // brak specjlnego handlingu move nam to ogarnia
