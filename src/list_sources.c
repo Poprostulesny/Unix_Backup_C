@@ -15,8 +15,6 @@
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #endif
 
-
-
 extern list_sc backups;
 
 // Helper function to delete a single source node
@@ -55,7 +53,6 @@ void list_source_add(node_sc* new_node)
     fprintf(stderr, "ADD node_sc %p (source=%s)\n", (void*)new_node, new_node->source_friendly);
 #endif
 
-
     new_node->next = l->head;
     new_node->previous = NULL;
     if (l->head != NULL)
@@ -73,7 +70,7 @@ void list_source_add(node_sc* new_node)
 
 // Function to delete a source node by source name
 void list_source_delete(char* source)
-{   
+{
     list_sc* l = &backups;
     if (l == NULL || source == NULL)
     {
@@ -126,8 +123,8 @@ int find_element_by_target(char* target)
     }
     node_sc* current = l->head;
     while (current != NULL)
-    {   
-        //This functions checks the target lists itself
+    {
+        // This functions checks the target lists itself
         if (find_element_by_target_help(&current->targets, target) == 1)
         {
             return 1;

@@ -1,11 +1,11 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 
+#include "list_targets.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include "list_targets.h"
 #include "list_inotify_events.h"
 #include "list_move_events.h"
 #include "list_wd.h"
@@ -59,7 +59,6 @@ void delete_target_node(node_tr* node)
         free(node->target_friendly);
         free(node->target_full);
         free(node);
-        
     }
 }
 
@@ -130,12 +129,12 @@ int list_target_delete(list_tg* l, char* target)
             {
                 l->tail = current->previous;
             }
-            
+
             delete_target_node(current);
-            #ifdef DEBUG
-        printf("Deleted node with full path: %s\n", current->target_full);
-            #endif
-           
+#ifdef DEBUG
+            printf("Deleted node with full path: %s\n", current->target_full);
+#endif
+
             l->size--;
             return 1;
         }
@@ -156,7 +155,7 @@ int find_element_by_target_help(list_tg* l, char* target)
     node_tr* current = l->head;
     while (current != NULL)
     {
-        if (strcmp(current->target_friendly, target) == 0||is_target_in_source(current->target_friendly, target)==1)
+        if (strcmp(current->target_friendly, target) == 0 || is_target_in_source(current->target_friendly, target) == 1)
         {
             return 1;
         }

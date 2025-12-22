@@ -19,9 +19,6 @@
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
 #endif
 
-
-
-
 void checked_mkdir(const char* path)
 {
     if (mkdir(path, 0755) != 0)
@@ -174,12 +171,8 @@ char* get_path_to_target(const char* source, const char* target, const char* pat
     return new_path;
 }
 
-
-
-
 void copy_file(const char* path1, const char* path2)
 {
-
 #ifdef DEBUG
     printf("Copying file %s to %s\n", path1, path2);
 #endif
@@ -201,7 +194,6 @@ void copy_file(const char* path1, const char* path2)
         printf("[copy_file] making path for dest dir: %s\n", dest_dir);
 #endif
 
-
         make_path(dest_dir);
         /* make_path builds all parents, but not the last component; ensure the leaf dir exists */
         checked_mkdir(dest_dir);
@@ -213,7 +205,6 @@ void copy_file(const char* path1, const char* path2)
     }
 #endif
     free(dest_dir);
-
 
     int read_fd = open(path1, O_RDONLY);
     int write_fd = open(path2, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -251,7 +242,6 @@ void copy_file(const char* path1, const char* path2)
     }
     copy_permissions_and_attributes(path1, path2);
 }
-
 
 void copy_link(const char* path_where, const char* path_dest)
 {
@@ -318,7 +308,6 @@ void copy(const char* source, const char* dest, char* backup_source, char* backu
         }
     }
 
-  
     if (S_ISLNK(st.st_mode))
     {
         _source = backup_source;
@@ -331,7 +320,6 @@ void copy(const char* source, const char* dest, char* backup_source, char* backu
     {
         copy_file(source, dest);
     }
-  
 }
 
 void create_empty_files(const char* dest_path, node_tr* target, node_sc* source_node, void* ctx)
@@ -477,7 +465,6 @@ void move_all(const char* dest_path, node_tr* target, node_sc* source_node, void
 
 int backup_walk(const char* path, const struct stat* s, int flag, struct FTW* ftw)
 {
- 
     char* path_new = get_path_to_target(_source, _target, path);
     if (path_new == NULL)
     {

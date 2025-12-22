@@ -45,8 +45,8 @@ char* _target;
 void stop_all_backups(void);
 void block_all_signals(void);
 void unblock_sigint_sigterm(void);
-void spawn_child_for_target(node_sc* source_node, node_tr* target_node, char * buf);
-void child_loop(node_sc* source_node, node_tr* target_node, char * buf);
+void spawn_child_for_target(node_sc* source_node, node_tr* target_node, char* buf);
+void child_loop(node_sc* source_node, node_tr* target_node, char* buf);
 void handle_end_for_target(node_sc* source_node, node_tr* target_node);
 void inotify_jobs(node_sc* source_node, node_tr* target_node);
 
@@ -72,7 +72,11 @@ void sethandler_restart(void (*f)(int), int sigNo)
 void sig_handler(int sig) { finish_work_flag = 1; }
 
 void sigusr1_parent(int sig) { (void)sig; }
-void sigack_parent(int sig) { (void)sig; restore_received++; }
+void sigack_parent(int sig)
+{
+    (void)sig;
+    restore_received++;
+}
 
 volatile sig_atomic_t child_pause_requested = 0;
 volatile sig_atomic_t child_ack_sent = 0;
@@ -91,7 +95,7 @@ void sigusr2_child(int sig)
     child_should_exit = 1;
 }
 void sigchld_handler(int sig)
-{   
+{
     (void)sig;
     sigchld_received = 1;
 }
@@ -115,7 +119,8 @@ void unblock_sigint_sigterm()
     {
         ERR("sigemptyset");
     }
-    if (sigaddset(&set, SIGINT) == -1 || sigaddset(&set, SIGTERM) == -1 || sigaddset(&set, SIGUSR2) == -1 || sigaddset(&set, SIGUSR1) == -1||sigaddset(&set, SIGCHLD)==-1||sigaddset(&set, SIG_ACK)==-1)
+    if (sigaddset(&set, SIGINT) == -1 || sigaddset(&set, SIGTERM) == -1 || sigaddset(&set, SIGUSR2) == -1 ||
+        sigaddset(&set, SIGUSR1) == -1 || sigaddset(&set, SIGCHLD) == -1 || sigaddset(&set, SIG_ACK) == -1)
     {
         ERR("sigaddset");
     }
@@ -133,35 +138,35 @@ void handle_dead_children(pid_t dead_pid)
         while (target != NULL)
         {
             if (target->child_pid == dead_pid)
-            {   
+            {
                 int removed = list_target_delete(&source->targets, target->target_friendly);
                 if (removed && child_count > 0)
                 {
                     child_count--;
                 }
-                
+
                 if (source->targets.size == 0)
                 {
                     list_source_delete(source->source_friendly);
                 }
                 return;
             }
-            target=target->next;
+            target = target->next;
         }
-        source=source->next;
+        source = source->next;
     }
-    
 }
-void reap_dead_children(){
+void reap_dead_children()
+{
     pid_t pid;
-    while((pid=waitpid(-getpid(), NULL, WNOHANG))>0){
+    while ((pid = waitpid(-getpid(), NULL, WNOHANG)) > 0)
+    {
         handle_dead_children(pid);
     }
-    sigchld_received=0;
-
+    sigchld_received = 0;
 }
-void child_loop(node_sc* source_node, node_tr* target_node, char *buf)
-{   
+void child_loop(node_sc* source_node, node_tr* target_node, char* buf)
+{
     free(buf);
     block_all_signals();
     sethandler(sigusr1_child, SIGUSR1);
@@ -192,7 +197,7 @@ void child_loop(node_sc* source_node, node_tr* target_node, char *buf)
             {
                 fprintf(stderr, "[DEBUG] child '%s' paused for restore\n", child_target_name);
             }
-#endif      
+#endif
             if (sigqueue(getppid(), SIG_ACK, (union sigval){0}) == -1)
             {
                 ERR("sigqueue");
@@ -223,12 +228,12 @@ void child_loop(node_sc* source_node, node_tr* target_node, char *buf)
         }
         sleep(1);
     }
-    
+
     delete_target_node(target_node);
     _exit(EXIT_SUCCESS);
 }
 
-void spawn_child_for_target(node_sc* source_node, node_tr* target_node, char *buf)
+void spawn_child_for_target(node_sc* source_node, node_tr* target_node, char* buf)
 {
     pid_t pid = fork();
     if (pid < 0)
@@ -257,7 +262,6 @@ void handle_end_for_target(node_sc* source_node, node_tr* target_node)
     {
         kill(target_node->child_pid, SIGUSR2);
         waitpid(target_node->child_pid, NULL, 0);
-
     }
     if (list_target_delete(&source_node->targets, target_node->target_friendly) && child_count > 0)
     {
@@ -293,7 +297,7 @@ int validate_target(node_sc* to_add, char* tok)
     }
     return 1;
 }
-int parse_targets(node_sc* to_add, char * buf)
+int parse_targets(node_sc* to_add, char* buf)
 {
     char* tok = tokenizer(NULL);
     int cnt = 0;
@@ -359,7 +363,7 @@ int parse_targets(node_sc* to_add, char * buf)
     return cnt;
 }
 
-int take_input(char * buf)
+int take_input(char* buf)
 {
     char* tok = tokenizer(NULL);
     if (tok == NULL)
@@ -382,8 +386,8 @@ int take_input(char * buf)
 
     // Checking whether we have an element with this source already active
     node_sc* source_elem = find_element_by_source(tok);
-    //Checking whether the given target is inside another target
-    
+    // Checking whether the given target is inside another target
+
     // If not create it
     if (source_elem == NULL)
     {
@@ -591,17 +595,18 @@ void restore(char* tok)
             checked_mkdir(source_tok);
             real_source = realpath(source_tok, NULL);
             if (real_source == NULL)
-            {   
+            {
                 return;
             }
         }
         else if (errno == ENOTDIR)
-        {free(real_source);
+        {
+            free(real_source);
             printf("Source is not a directory!\n");
             return;
         }
         else
-        {   
+        {
             free(real_source);
             printf("Invalid input\n");
             return;
@@ -623,13 +628,14 @@ void restore(char* tok)
             }
         }
         else if (errno == ENOTDIR)
-        {   free(real_target);
+        {
+            free(real_target);
             free(real_source);
             printf("Target is not a directory!\n");
             return;
         }
         else
-        {   
+        {
             free(real_target);
             free(real_source);
             printf("Invalid input\n");
@@ -642,7 +648,7 @@ void restore(char* tok)
     restore_expected = expected_waiting;
     restore_received = 0;
     if (expected_waiting > 0)
-    {   
+    {
         sigset_t set, old;
         sigemptyset(&set);
         sigaddset(&set, SIG_ACK);
@@ -662,7 +668,7 @@ void restore(char* tok)
         {
             sigsuspend(&suspend_mask);
         }
-         if (sigprocmask(SIG_SETMASK, &old, NULL) == -1)
+        if (sigprocmask(SIG_SETMASK, &old, NULL) == -1)
         {
             ERR("sigprocmask restore");
         }
@@ -687,38 +693,39 @@ void input_handler()
     char* buff = NULL;
     int n = 0;
     int k;
-    int should_skip=0;
+    int should_skip = 0;
     while (1)
-    {   should_skip=0;
-        errno=0;
-        if((n = getline(&buff, &z, stdin)) == -1){
-           should_skip=1;
+    {
+        should_skip = 0;
+        errno = 0;
+        if ((n = getline(&buff, &z, stdin)) == -1)
+        {
+            should_skip = 1;
         }
 
-    
-        
-        if (n<0&&errno == EINTR) {
+        if (n < 0 && errno == EINTR)
+        {
             puts("Process encountered an interrupt, please retype your command");
             errno = 0;
-            should_skip=1;
-            
+            should_skip = 1;
         }
-        if(sigchld_received){
+        if (sigchld_received)
+        {
             reap_dead_children();
             // puts("finished");
         }
         if (finish_work_flag)
-        {   
+        {
             // puts("finishing work");
             break;
         }
-       
-        if(should_skip){
-            should_skip=0;
+
+        if (should_skip)
+        {
+            should_skip = 0;
             continue;
         }
-        
-        
+
         if (buff[n - 1] == '\n')
         {
             buff[n - 1] = '\0';
@@ -769,18 +776,17 @@ void input_handler()
         {
             list_sources_and_targets();
         }
-        else{
+        else
+        {
             puts("Invalid syntax");
         }
     }
     free(buff);
     stop_all_backups();
-    
 }
 
 int main()
-{   
-   
+{
     block_all_signals();
     init_lists();
     sethandler(sig_handler, SIGTERM);
@@ -793,12 +799,13 @@ int main()
     unblock_sigint_sigterm();
 
     input_handler();
-    if(child_count>0){
+    if (child_count > 0)
+    {
         while (wait(NULL) > 0)
-            {
-                ;
-            }   
+        {
+            ;
+        }
     }
-    
+
     return 0;
 }

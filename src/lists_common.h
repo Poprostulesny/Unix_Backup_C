@@ -2,9 +2,9 @@
 #define LISTS_COMMON_H
 
 #include <stdint.h>
-#include <time.h>
 #include <sys/inotify.h>
 #include <sys/types.h>
+#include <time.h>
 
 #ifndef ERR
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
@@ -12,7 +12,7 @@
 
 /* Watch descriptor list node and list structures */
 typedef struct Node_wd
-{   
+{
     struct Node_wd* next;
     struct Node_wd* prev;
     int wd;
@@ -23,7 +23,7 @@ typedef struct Node_wd
 } Node_wd;
 
 typedef struct List_wd
-{   
+{
     struct Node_wd* head;
     struct Node_wd* tail;
     int size;
@@ -31,13 +31,13 @@ typedef struct List_wd
 
 /* Move events node and list structures */
 typedef struct Move_Node
-{   
+{
     uint32_t cookie;
-    char * move_from;
-    char * move_to;
+    char* move_from;
+    char* move_to;
     struct Node_source* source;
-    struct Move_Node * next;
-    struct Move_Node * prev;
+    struct Move_Node* next;
+    struct Move_Node* prev;
     time_t token;
 } M_node;
 
@@ -50,22 +50,22 @@ typedef struct Move_List
 
 /* Inotify event node and list structures */
 typedef struct Inotify_event_node
-{   
-    struct Inotify_event_node * next;
-    struct Inotify_event_node * prev;
+{
+    struct Inotify_event_node* next;
+    struct Inotify_event_node* prev;
     int wd;
     uint32_t mask;
     uint32_t cookie;
     uint32_t len;
     char* name;
-    char * full_path;
-    char * suffix;
+    char* full_path;
+    char* suffix;
 } Ino_Node;
 
 typedef struct Inotify_List
 {
-    struct Inotify_event_node * head;
-    struct Inotify_event_node * tail;
+    struct Inotify_event_node* head;
+    struct Inotify_event_node* tail;
     int size;
 } Ino_List;
 
@@ -95,19 +95,19 @@ typedef struct Node_init
 {
     struct Node_init* next;
     struct Node_init* prev;
-    char * source_full;
+    char* source_full;
     char* target_full;
     char* source_friendly;
 } Node_init;
 
 typedef struct Init_backup_task_list
-{   
+{
     struct Node_init* head;
     struct Node_init* tail;
     int size;
 } list_bck;
 typedef struct Node_source
-{   
+{
     char* source_full;
     char* source_friendly;
     struct List_target targets;
@@ -116,14 +116,13 @@ typedef struct Node_source
 } node_sc;
 
 typedef struct List_source
-{   
+{
     struct Node_source* head;
     struct Node_source* tail;
     int size;
 } list_sc;
 /* Global lists (defined in lists.c) */
 extern list_sc backups;
-
 
 // Initialize all global lists mutexes and reset their state
 void init_lists(void);

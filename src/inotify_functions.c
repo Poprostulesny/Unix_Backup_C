@@ -134,7 +134,7 @@ void new_folder_init(node_sc* source_node, node_tr* target_node, char* path)
     _target_node = NULL;
 }
 
-//Function to read from the given inotify fd. It adds all events of a given fd to the given inotify list.
+// Function to read from the given inotify fd. It adds all events of a given fd to the given inotify list.
 void inotify_reader(int fd, list_wd* wd_list, Ino_List* inotify)
 {
     char buffer[BUF_SIZE];
@@ -207,7 +207,7 @@ void inotify_reader(int fd, list_wd* wd_list, Ino_List* inotify)
     INOTIFY EVENT HANDLING
 
 */
-//Helper function used to clean up the code
+// Helper function used to clean up the code
 void debug_printer(char* type, int wd, char* source_friendly, char* path, char* event_name, int is_dir)
 {
 #ifdef DEBUG
@@ -216,21 +216,21 @@ void debug_printer(char* type, int wd, char* source_friendly, char* path, char* 
 #endif
 }
 
-//Function handling the Inotify Events of a given source node/target pair. 
+// Function handling the Inotify Events of a given source node/target pair.
 void event_handler(node_sc* source_node, node_tr* target_node)
-{   
+{
     if (source_node == NULL || target_node == NULL)
     {
         return;
     }
-    //Helper variables
+    // Helper variables
     Ino_List* inotify_events = &target_node->events;
     list_wd* wd_list = &target_node->watchers;
 
     while (1)
-    {   
+    {
         Ino_Node* event = inotify_events->head;
-        //break condition -> no events
+        // break condition -> no events
         if (event == NULL)
         {
             break;
@@ -238,13 +238,13 @@ void event_handler(node_sc* source_node, node_tr* target_node)
 
         int is_dir = (event->mask & IN_ISDIR) != 0;
 
-        //Finding which watch descriptor has encountered the event (at which path it happened)
+        // Finding which watch descriptor has encountered the event (at which path it happened)
         Node_wd* wd_node = find_element_by_wd(wd_list, event->wd);
         size_t src_len = strlen(source_node->source_full);
         int outside_source = 1;
 
-        //check whether the given event happened inside the source directory. This check ensures that a moved out, 
-        //but not yet deleted watcher doesn't trigger a backup to an unspecified location
+        // check whether the given event happened inside the source directory. This check ensures that a moved out,
+        // but not yet deleted watcher doesn't trigger a backup to an unspecified location
         if (strncmp(event->full_path, source_node->source_full, src_len) == 0)
         {
             char boundary = event->full_path[src_len];
@@ -258,10 +258,9 @@ void event_handler(node_sc* source_node, node_tr* target_node)
             inotify_rm_watch(target_node->inotify_fd, wd_node->wd);
             delete_wd_node(&target_node->watchers, wd_node->wd);
             remove_inotify_event(inotify_events);
-            //no error check since if it didnt exist at this moment than all is good
+            // no error check since if it didnt exist at this moment than all is good
             continue;
         }
-
 
         const char* suffix = (event->suffix != NULL) ? event->suffix : "";
         if ((event->mask & IN_CREATE) && is_dir)
@@ -304,7 +303,7 @@ void event_handler(node_sc* source_node, node_tr* target_node)
         {
             debug_printer("IN_MOVED_FROM", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
             add_move_event(&target_node->mov_dict, event->cookie, event->full_path, 1, source_node, target_node);
-           
+
             // mapa cookiesow
             // dodajemy delikwenta
             // jezeli nie ma po MOV_TIME s drugiego eventu, usuwamy
@@ -355,7 +354,6 @@ void event_handler(node_sc* source_node, node_tr* target_node)
         {
             debug_printer("IN_IGNORED", event->wd, wd_node->source_friendly, wd_node->path, event->name, is_dir);
             delete_wd_node(wd_list, event->wd);
-        
         }
 
         remove_inotify_event(inotify_events);

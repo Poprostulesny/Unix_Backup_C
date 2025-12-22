@@ -1,10 +1,10 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 
+#include "list_wd.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "list_wd.h"
 
 #ifndef ERR
 #define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
@@ -22,7 +22,6 @@ void delete_wd_node(list_wd* l, int wd)
     {
         if (current->wd == wd)
         {
-           
             if (current->prev != NULL)
             {
                 current->prev->next = current->next;
@@ -41,11 +40,11 @@ void delete_wd_node(list_wd* l, int wd)
                 l->tail = current->prev;
             }
 
-                free(current->source_friendly);
-                free(current->source_full);
-                free(current->path);
-                free(current->suffix);
-                free(current);
+            free(current->source_friendly);
+            free(current->source_full);
+            free(current->path);
+            free(current->suffix);
+            free(current);
             l->size--;
             return;
         }
@@ -79,7 +78,8 @@ void add_wd_node(list_wd* l, int wd, char* source_friendly, char* source_full, c
         new_node->suffix = strdup("");
     }
     new_node->next = NULL;
-    if (new_node->source_friendly == NULL || new_node->source_full == NULL || new_node->path == NULL || new_node->suffix == NULL)
+    if (new_node->source_friendly == NULL || new_node->source_full == NULL || new_node->path == NULL ||
+        new_node->suffix == NULL)
     {
         free(new_node->source_friendly);
         free(new_node->source_full);
