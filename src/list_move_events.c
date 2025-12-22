@@ -5,229 +5,205 @@
 #define MOV_TIME 15.0
 
 #include "list_move_events.h"
+#include "generic_file_functions.h"
+#include "inotify_functions.h"
+#include "lists_common.h"
+#include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
-#include "generic_file_functions.h"
-#include "inotify_functions.h"
-#include "lists_common.h"
-#include "utils.h"
 #ifndef ERR
-#define ERR(source) (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), exit(EXIT_FAILURE))
+#define ERR(source)                                                            \
+  (perror(source), fprintf(stderr, "%s:%d\n", __FILE__, __LINE__),             \
+   exit(EXIT_FAILURE))
 #endif
 
-void delete_node(M_list* l, M_node* current)
-{
-    if (current->prev != NULL)
-    {
-        current->prev->next = current->next;
-    }
-    else
-    {
-        l->head = current->next;
-    }
+void delete_node(M_list *l, M_node *current) {
+  if (current->prev != NULL) {
+    current->prev->next = current->next;
+  } else {
+    l->head = current->next;
+  }
 
-    if (current->next != NULL)
-    {
-        current->next->prev = current->prev;
-    }
-    else
-    {
-        l->tail = current->prev;
-    }
+  if (current->next != NULL) {
+    current->next->prev = current->prev;
+  } else {
+    l->tail = current->prev;
+  }
 
-    free(current->move_from);
-    free(current->move_to);
-    free(current);
-    l->size--;
+  free(current->move_from);
+  free(current->move_to);
+  free(current);
+  l->size--;
 }
-// helper function for a completed move - just move the corresponding files/directories in the target
-static void handle_completed_move(M_list* l, M_node* node, node_sc* source, node_tr* target)
-{
-    if (node == NULL || source == NULL || target == NULL)
-    {
-        return;
-    }
-    char* suf_to = get_end_suffix(source->source_full, node->move_to);
-    char* suf_from = get_end_suffix(source->source_full, node->move_from);
-    char* dest_path = concat(2, target->target_full, suf_to != NULL ? suf_to : "");
-    if (dest_path != NULL)
-    {
-        move_all(dest_path, target, source, suf_from);
-        free(dest_path);
-    }
-    free(suf_from);
-    free(suf_to);
-    delete_node(l, node);
+// helper function for a completed move - just move the corresponding
+// files/directories in the target
+static void handle_completed_move(M_list *l, M_node *node, node_sc *source,
+                                  node_tr *target) {
+  if (node == NULL || source == NULL || target == NULL) {
+    return;
+  }
+  char *suf_to = get_end_suffix(source->source_full, node->move_to);
+  char *suf_from = get_end_suffix(source->source_full, node->move_from);
+  char *dest_path =
+      concat(2, target->target_full, suf_to != NULL ? suf_to : "");
+  if (dest_path != NULL) {
+    move_all(dest_path, target, source, suf_from);
+    free(dest_path);
+  }
+  free(suf_from);
+  free(suf_to);
+  delete_node(l, node);
 }
 // helper function to delete a node after a timeout
-static void handle_expired_node(M_list* l, M_node* current, node_sc* source, node_tr* target)
-{
-    if (current == NULL || source == NULL || target == NULL)
-    {
-        delete_node(l, current);
-        return;
-    }
-
-    // Check what we have to do for this incomlplete move
-
-    // File came from out of the watched directory
-    if (current->move_from == NULL && current->move_to != NULL)
-    {
-        char* suf_to = get_end_suffix(source->source_full, current->move_to);
-        struct stat st;
-        // If the file already doesnt exist - we have nothing to do (the delete event will handle it)
-        if (lstat(current->move_to, &st) == -1)
-        {
-            free(suf_to);
-            delete_node(l, current);
-            return;
-        }
-        // If it is a file - we have to copy it to all targets
-        if (!S_ISDIR(st.st_mode))
-        {
-            char* dest_path = concat(2, target->target_full, suf_to != NULL ? suf_to : "");
-            if (dest_path != NULL)
-            {
-                copy_files(dest_path, target, source, current->move_to);
-                free(dest_path);
-            }
-        }
-        //
-        else
-        {
-            new_folder_init(source, target, current->move_to);
-        }
-
-        free(suf_to);
-    }
-
-    // File came out of the directory
-    else if (current->move_to == NULL && current->move_from != NULL)
-    {
-        char* suf_from = get_end_suffix(source->source_full, current->move_from);
-        char* dest_path = concat(2, target->target_full, suf_from != NULL ? suf_from : "");
-        if (dest_path != NULL)
-        {
-            delete_multi(dest_path, target, source, NULL);
-            free(dest_path);
-        }
-        free(suf_from);
-    }
-
+static void handle_expired_node(M_list *l, M_node *current, node_sc *source,
+                                node_tr *target) {
+  if (current == NULL || source == NULL || target == NULL) {
     delete_node(l, current);
+    return;
+  }
+
+  // Check what we have to do for this incomlplete move
+
+  // File came from out of the watched directory
+  if (current->move_from == NULL && current->move_to != NULL) {
+    char *suf_to = get_end_suffix(source->source_full, current->move_to);
+    struct stat st;
+    // If the file already doesnt exist - we have nothing to do (the delete
+    // event will handle it)
+    if (lstat(current->move_to, &st) == -1) {
+      free(suf_to);
+      delete_node(l, current);
+      return;
+    }
+    // If it is a file - we have to copy it to all targets
+    if (!S_ISDIR(st.st_mode)) {
+      char *dest_path =
+          concat(2, target->target_full, suf_to != NULL ? suf_to : "");
+      if (dest_path != NULL) {
+        copy_files(dest_path, target, source, current->move_to);
+        free(dest_path);
+      }
+    }
+    //
+    else {
+      new_folder_init(source, target, current->move_to);
+    }
+
+    free(suf_to);
+  }
+
+  // File came out of the directory
+  else if (current->move_to == NULL && current->move_from != NULL) {
+    char *suf_from = get_end_suffix(source->source_full, current->move_from);
+    char *dest_path =
+        concat(2, target->target_full, suf_from != NULL ? suf_from : "");
+    if (dest_path != NULL) {
+      delete_multi(dest_path, target, source, NULL);
+      free(dest_path);
+    }
+    free(suf_from);
+  }
+
+  delete_node(l, current);
 }
 
 // adding a new event
-void add_move_event(M_list* l, uint32_t cookie, const char* path, int is_from, node_sc* source, node_tr* target)
-{
-    if (l == NULL || path == NULL || source == NULL || target == NULL)
-    {
-        return;
-    }
+void add_move_event(M_list *l, uint32_t cookie, const char *path, int is_from,
+                    node_sc *source, node_tr *target) {
+  if (l == NULL || path == NULL || source == NULL || target == NULL) {
+    return;
+  }
 
-    time_t current_time = time(NULL);
-    int matched = 0;
+  time_t current_time = time(NULL);
+  int matched = 0;
 
-    M_node* current = l->head;
+  M_node *current = l->head;
 
-    // Searching for the corresponding event
-    while (current != NULL)
-    {
-        M_node* next = current->next;
+  // Searching for the corresponding event
+  while (current != NULL) {
+    M_node *next = current->next;
 
-        // if it is found
-        if (current->cookie == cookie)
-        {
-            char** target_field = is_from ? &current->move_from : &current->move_to;
-            if (*target_field == NULL)
-            {
-                *target_field = strdup(path);
-                if (*target_field == NULL)
-                {
-                    ERR("strdup");
-                }
-            }
-            current->token = current_time;
-            // If the move got completed, we can handle it by moving the files correspodingly
-            if (current->move_from != NULL && current->move_to != NULL)
-            {
-                handle_completed_move(l, current, source, target);
-            }
-            matched = 1;
+    // if it is found
+    if (current->cookie == cookie) {
+      char **target_field = is_from ? &current->move_from : &current->move_to;
+      if (*target_field == NULL) {
+        *target_field = strdup(path);
+        if (*target_field == NULL) {
+          ERR("strdup");
         }
-        // Node expiration
-        else if (difftime(current_time, current->token) > MOV_TIME)
-        {
-            handle_expired_node(l, current, source, target);
-        }
-
-        current = next;
+      }
+      current->token = current_time;
+      // If the move got completed, we can handle it by moving the files
+      // correspodingly
+      if (current->move_from != NULL && current->move_to != NULL) {
+        handle_completed_move(l, current, source, target);
+      }
+      matched = 1;
     }
-    // if we have found our match, we dont add an event, we can return
-    if (matched)
-    {
-        return;
-    }
-
-    // else we are adding a new node
-    M_node* new_node = malloc(sizeof(M_node));
-    if (new_node == NULL)
-    {
-        ERR("malloc");
+    // Node expiration
+    else if (difftime(current_time, current->token) > MOV_TIME) {
+      handle_expired_node(l, current, source, target);
     }
 
-    new_node->cookie = cookie;
-    new_node->move_from = is_from ? strdup(path) : NULL;
-    new_node->move_to = is_from ? NULL : strdup(path);
-    new_node->token = current_time;
-    new_node->next = NULL;
+    current = next;
+  }
+  // if we have found our match, we dont add an event, we can return
+  if (matched) {
+    return;
+  }
 
-    // throw on error
-    if ((is_from && new_node->move_from == NULL) || (!is_from && new_node->move_to == NULL))
-    {
-        free(new_node->move_from);
-        free(new_node->move_to);
-        free(new_node);
-        ERR("strdup");
-    }
+  // else we are adding a new node
+  M_node *new_node = malloc(sizeof(M_node));
+  if (new_node == NULL) {
+    ERR("malloc");
+  }
 
-    new_node->prev = l->tail;
-    if (l->tail != NULL)
-    {
-        l->tail->next = new_node;
-    }
-    else
-    {
-        l->head = new_node;
-    }
+  new_node->cookie = cookie;
+  new_node->move_from = is_from ? strdup(path) : NULL;
+  new_node->move_to = is_from ? NULL : strdup(path);
+  new_node->token = current_time;
+  new_node->next = NULL;
 
-    l->tail = new_node;
-    l->size++;
+  // throw on error
+  if ((is_from && new_node->move_from == NULL) ||
+      (!is_from && new_node->move_to == NULL)) {
+    free(new_node->move_from);
+    free(new_node->move_to);
+    free(new_node);
+    ERR("strdup");
+  }
+
+  new_node->prev = l->tail;
+  if (l->tail != NULL) {
+    l->tail->next = new_node;
+  } else {
+    l->head = new_node;
+  }
+
+  l->tail = new_node;
+  l->size++;
 }
 
-// Function to check the move event list for expirations. Useful in case we dont get any move events for a long time
-void check_move_events_list(M_list* l, node_sc* source, node_tr* target)
-{
-    if (l == NULL || target == NULL)
-    {
-        return;
+// Function to check the move event list for expirations. Useful in case we dont
+// get any move events for a long time
+void check_move_events_list(M_list *l, node_sc *source, node_tr *target) {
+  if (l == NULL || target == NULL) {
+    return;
+  }
+
+  time_t current_time = time(NULL);
+
+  M_node *current = l->head;
+  while (current != NULL) {
+    M_node *next = current->next;
+
+    if (difftime(current_time, current->token) > MOV_TIME) {
+      handle_expired_node(l, current, source, target);
     }
 
-    time_t current_time = time(NULL);
-
-    M_node* current = l->head;
-    while (current != NULL)
-    {
-        M_node* next = current->next;
-
-        if (difftime(current_time, current->token) > MOV_TIME)
-        {
-            handle_expired_node(l, current, source, target);
-        }
-
-        current = next;
-    }
+    current = next;
+  }
 }
