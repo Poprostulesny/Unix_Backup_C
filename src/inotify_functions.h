@@ -2,16 +2,15 @@
 #ifndef INOTIFY_FUNCTIONS_H
 #define INOTIFY_FUNCTIONS_H
 
-#include "list_move_events.h"
-#include "lists_common.h"
 #include <ftw.h>
 #include <sys/inotify.h>
 #include <sys/stat.h>
+#include "list_move_events.h"
+#include "lists_common.h"
 
 // Function instantiating inotify recursively in a given source for current
 // target
-int backup_walk_inotify_init(const char *path, const struct stat *s, int flag,
-                             struct FTW *ftw);
+int backup_walk_inotify_init(const char *path, const struct stat *s, int flag, struct FTW *ftw);
 
 // Handler of initial backup events. Creates inotify instance for the target if
 // necessary

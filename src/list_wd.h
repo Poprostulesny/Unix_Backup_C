@@ -8,8 +8,7 @@ void delete_wd_node(list_wd *l, int wd);
 
 // Function to add a wd node, taking its source, friendly source, and path to
 // the place the wd is watching
-void add_wd_node(list_wd *l, int wd, char *source_friendly, char *source_full,
-                 const char *path, const char *suffix);
+void add_wd_node(list_wd *l, int wd, char *source_friendly, char *source_full, const char *path, const char *suffix);
 
 // Function to find an element by wd
 Node_wd *find_element_by_wd(list_wd *l, int wd);
