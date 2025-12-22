@@ -226,7 +226,7 @@ void child_loop(node_sc* source_node, node_tr* target_node, char* buf)
         {
             break;
         }
-        sleep(1);
+        sleep(4);
     }
 
     delete_target_node(target_node);
@@ -280,6 +280,10 @@ int validate_target(node_sc* to_add, char* tok)
 {
     // If an element is already a target or a source of another element in the list, dont add it to the targets and
     // print an error message.
+    if(tok[0]=='/'){
+        printf("Invalid path\n");
+        return 0;
+    }
     if (find_element_by_target_help(&to_add->targets, tok))
     {
         printf("This target already exists or lies inside another target(%s)!\n", tok);
@@ -368,7 +372,10 @@ int take_input(char* buf)
     char* tok = tokenizer(NULL);
     if (tok == NULL)
         return 0;
-
+    if(tok[0]=='/'){
+        printf("Invalid path\n");
+        return 0;
+    }
     // Setting variables
     int was_source_added = 0;
     char* source_full = realpath(tok, NULL);
@@ -383,11 +390,10 @@ int take_input(char* buf)
         free(source_full);
         return 0;
     }
-
+    
     // Checking whether we have an element with this source already active
     node_sc* source_elem = find_element_by_source(tok);
-    // Checking whether the given target is inside another target
-
+    
     // If not create it
     if (source_elem == NULL)
     {
@@ -703,7 +709,7 @@ void input_handler()
             should_skip = 1;
         }
 
-        if (n < 0 && errno == EINTR)
+        if (n < 0 && errno == EINTR&&!finish_work_flag)
         {
             puts("Process encountered an interrupt, please retype your command");
             errno = 0;
@@ -806,6 +812,6 @@ int main()
             ;
         }
     }
-
+    puts("Goodbye!");
     return 0;
 }
