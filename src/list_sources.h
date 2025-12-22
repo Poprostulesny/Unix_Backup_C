@@ -1,8 +1,8 @@
 #ifndef LIST_SOURCES_H
 #define LIST_SOURCES_H
 
-#include "lists_common.h"
 #include "list_targets.h"
+#include "lists_common.h"
 
 // Function to add a source node at the beginning of source list
 void list_source_add(node_sc* new_node);
