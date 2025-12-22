@@ -1,6 +1,5 @@
 #ifndef LIST_TARGETS_H
 #define LIST_TARGETS_H
-
 #include "lists_common.h"
 
 // Helper function to delete a single target node

@@ -1,6 +1,5 @@
 #ifndef LIST_SOURCES_H
 #define LIST_SOURCES_H
-
 #include "list_targets.h"
 #include "lists_common.h"
 

@@ -1,6 +1,5 @@
 #ifndef LIST_MOVE_EVENTS_H
 #define LIST_MOVE_EVENTS_H
-
 #include "inotify_functions.h"
 #include "lists_common.h"
 #include "utils.h"

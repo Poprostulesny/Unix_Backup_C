@@ -1,7 +1,6 @@
 // src/inotify_functions.h
 #ifndef INOTIFY_FUNCTIONS_H
 #define INOTIFY_FUNCTIONS_H
-
 #include <ftw.h>
 #include <sys/inotify.h>
 #include <sys/stat.h>

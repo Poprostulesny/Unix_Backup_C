@@ -1,6 +1,5 @@
 #ifndef LIST_WD_H
 #define LIST_WD_H
-
 #include "lists_common.h"
 
 // Function to delete a wd node by its wd

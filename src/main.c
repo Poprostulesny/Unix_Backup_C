@@ -1,6 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
-
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -14,12 +13,10 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-
 #include "generic_file_functions.h"
 #include "inotify_functions.h"
 #include "restore.h"
 #include "utils.h"
-
 #include "list_move_events.h"
 #include "list_sources.h"
 #include "list_targets.h"

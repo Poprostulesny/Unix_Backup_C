@@ -1,6 +1,5 @@
 #ifndef LIST_INOTIFY_EVENTS_H
 #define LIST_INOTIFY_EVENTS_H
-
 #include <sys/inotify.h>
 #include "lists_common.h"
 

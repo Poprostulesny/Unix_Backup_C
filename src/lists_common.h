@@ -1,6 +1,5 @@
 #ifndef LISTS_COMMON_H
 #define LISTS_COMMON_H
-
 #include <stdint.h>
 #include <sys/inotify.h>
 #include <sys/types.h>

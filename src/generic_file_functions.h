@@ -2,10 +2,8 @@
 #ifndef DEBUG
 // #define DEBUG
 #endif
-
 #ifndef GENERIC_FILE_FUNCTIONS_H
 #define GENERIC_FILE_FUNCTIONS_H
-
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>

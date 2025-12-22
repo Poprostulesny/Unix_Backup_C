@@ -1,9 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
-
 // How long in seconds will the values be held in mov buffer
 #define MOV_TIME 15.0
-
 #include "list_move_events.h"
 #include <stdio.h>
 #include <stdlib.h>
