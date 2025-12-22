@@ -26,14 +26,14 @@ Supported commands:
 - `add <source> <target1> [target2 ...]` — start backing up `source` into one or more empty target directories (created if missing). Each target gets its **own child process** with its own inotify fd and queues.
 - `end <source> <target1> [target2 ...]` — stop backing up the listed targets for a given source; only the matching child is signaled and reaped. The source is removed when it has no targets.
 - `list` — print all active sources and their targets.
-- `restore <destination> <backup>` — parent pauses all children via `SIGUSR1`, waits for ACKs, restores files from `backup` into `destination` (creating it if needed), then resumes children with another `SIGUSR1`. Existing files in `destination` are overwritten/removed to match the backup.
+- `restore <destination> <backup>` — parent pauses all children via `SIGUSR1`, waits for queued ACKs on `SIGRTMIN`, restores files from `backup` into `destination` (creating it if needed), then resumes children with another `SIGUSR1`. Existing files in `destination` are overwritten/removed to match the backup.
 - `exit` — send `SIGUSR2` to all children, reap them, and quit. `SIGINT/SIGTERM` trigger the same cleanup.
 
 ### Approach overview (why forks, signals, and per-target state)
 - **Per-target isolation:** Each target has its own process, inotify fd, watch list, event queue, and move dictionary. No mutexes are needed; lists are single-threaded per child.
-- **Process groups for broadcast:** Children are placed in the parent’s process group (`setpgid(pid, getpid())`). Broadcasts for pause/resume use `kill(-getpid(), SIGUSR1)`; targeted shutdowns (`end`) use `kill(child_pid, SIGUSR2)`.
-- **Pause/resume for restore:** Parent blocks `SIGUSR1`, broadcasts pause, then `sigsuspend`-waits until every child ACKs via the SIGUSR1 handler counter. After restore, a second `SIGUSR1` resumes work.
-- **Cleanup on exit:** Parent sends `SIGUSR2` to children, reaps all with `wait`, resets counts, and frees lists. SIGUSR2 is blocked in parent to avoid self-termination.
+- **Process groups for broadcast:** Children are placed in the parent’s process group (`setpgid(pid, getpid())`). Broadcasts for pause/resume use `kill(-getpid(), SIGUSR1)`; targeted shutdowns (`end`) use `kill(child_pid, SIGUSR2)`. Parent ignores SIGUSR2 so only children exit on it.
+- **Pause/resume for restore:** Parent broadcasts pause with `SIGUSR1`, then counts per-child ACKs delivered on `SIGRTMIN` (queued, so multiple ACKs are not lost). After restore, a second `SIGUSR1` resumes work.
+- **Cleanup on exit:** Parent sends `SIGUSR2` to children, reaps all with `waitpid`, resets counts, and frees lists. SIGCHLD is handled with restartable handlers so `getline` keeps working.
 - **Path validation and safety:** `realpath` normalizes paths; targets must be empty and not inside a source; events outside the source tree drop their watches to avoid writing to unknown locations.
 
 ### Data structures (linked lists)
@@ -58,7 +58,7 @@ Supported commands:
 
 ### Restore flow
 - Command: `restore <destination> <backup>`.
-- Parent blocks SIGUSR1, broadcasts pause to the process group, waits for ACKs (SIGUSR1 handler increments a counter).
+- Parent broadcasts pause to the process group (`SIGUSR1`), then waits for per-child ACKs delivered on `SIGRTMIN`.
 - Phase 1: walk `backup`, copying missing or changed files/symlinks to `destination` (creating directories first).
 - Phase 2: walk `destination` and delete entries that do not exist in `backup`.
 - Permissions and timestamps preserved; paths are created if missing.

@@ -99,12 +99,12 @@ void list_target_add(list_tg* l, node_tr* new_node)
     l->size++;
 }
 
-// Function to delete a target node by full target name
-void list_target_delete(list_tg* l, char* target)
+// Function to delete a target node by full target name; returns 1 on delete, 0 if not found
+int list_target_delete(list_tg* l, char* target)
 {
     if (l == NULL || target == NULL)
     {
-        return;
+        return 0;
     }
 
     node_tr* current = l->head;
@@ -130,18 +130,19 @@ void list_target_delete(list_tg* l, char* target)
             {
                 l->tail = current->previous;
             }
-
+            
             delete_target_node(current);
             #ifdef DEBUG
         printf("Deleted node with full path: %s\n", current->target_full);
             #endif
            
             l->size--;
-            return;
+            return 1;
         }
         current = current->next;
     }
     printf("Target not found: %s\n", target);
+    return 0;
 }
 
 // Function to check whether an element is already a target by the friendly name
@@ -155,7 +156,7 @@ int find_element_by_target_help(list_tg* l, char* target)
     node_tr* current = l->head;
     while (current != NULL)
     {
-        if (strcmp(current->target_friendly, target) == 0)
+        if (strcmp(current->target_friendly, target) == 0||is_target_in_source(current->target_friendly, target)==1)
         {
             return 1;
         }

@@ -133,12 +133,13 @@ void handle_dead_children(pid_t dead_pid)
         while (target != NULL)
         {
             if (target->child_pid == dead_pid)
-            {
-                list_target_delete(&source->targets, target->target_friendly);
-                if (child_count > 0)
+            {   
+                int removed = list_target_delete(&source->targets, target->target_friendly);
+                if (removed && child_count > 0)
                 {
                     child_count--;
                 }
+                
                 if (source->targets.size == 0)
                 {
                     list_source_delete(source->source_friendly);
@@ -256,9 +257,12 @@ void handle_end_for_target(node_sc* source_node, node_tr* target_node)
     {
         kill(target_node->child_pid, SIGUSR2);
         waitpid(target_node->child_pid, NULL, 0);
-        
+
     }
-    list_target_delete(&source_node->targets, target_node->target_friendly);
+    if (list_target_delete(&source_node->targets, target_node->target_friendly) && child_count > 0)
+    {
+        child_count--;
+    }
 }
 
 /*
@@ -274,7 +278,7 @@ int validate_target(node_sc* to_add, char* tok)
     // print an error message.
     if (find_element_by_target_help(&to_add->targets, tok))
     {
-        printf("This target already exists(%s)!\n", tok);
+        printf("This target already exists or lies inside another target(%s)!\n", tok);
         return 0;
     }
     if (is_target_in_source(to_add->source_friendly, tok))
@@ -378,7 +382,8 @@ int take_input(char * buf)
 
     // Checking whether we have an element with this source already active
     node_sc* source_elem = find_element_by_source(tok);
-
+    //Checking whether the given target is inside another target
+    
     // If not create it
     if (source_elem == NULL)
     {
@@ -763,6 +768,9 @@ void input_handler()
         else if (strcmp(tok, "list") == 0)
         {
             list_sources_and_targets();
+        }
+        else{
+            puts("Invalid syntax");
         }
     }
     free(buff);
