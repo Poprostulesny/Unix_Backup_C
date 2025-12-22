@@ -11,13 +11,20 @@
 #endif
 
 // returns 1 if target is in source, 0 otherwise
-int is_target_in_source(char* source, char* target)
-{
+int is_target_in_source(char* _source, char* _target)
+{   
+    char * source = _source;
+    char * target = _target;
     if (source == NULL || target == NULL)
     {
         return 0;
     }
-
+    if(source[0]=='/'){
+        source=source+1;
+    }
+    if(target[0]=='/'){
+        target= target+1;
+    }
     size_t source_len = strlen(source);
     size_t target_len = strlen(target);
 
